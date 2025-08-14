@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ItemInventario } from 'src/models/item-inventario/item-inventario';
 import { Reto } from 'src/models/reto/reto';
 import { DataSource } from 'typeorm';
 import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
@@ -23,7 +24,7 @@ import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
                         synchronize: false,  // Sincroniza la base de datos con los modelos
                         logging: true,   // Muestra los logs de la base de datos
                         namingStrategy: new SnakeNamingStrategy(),
-                        entities: [Reto], // Aqui van todas las entidades o clases
+                        entities: [Reto, ItemInventario], // Aqui van todas las entidades o clases
                         driver: require('mysql2')
                     })
 
