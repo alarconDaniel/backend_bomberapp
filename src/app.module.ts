@@ -4,7 +4,6 @@ import { AppService } from './app.service';
 import { RetoModule } from './modules/public/reto/reto.module';
 import { ConexionModule } from './config/conexion/conexion.module';
 import { ConfigModule } from '@nestjs/config';
-import { ItemTienda } from './models/item-tienda/item-tienda';
 import { ItemTiendaModule } from './modules/public/item-tienda/item-tienda.module';
 
 @Module({
