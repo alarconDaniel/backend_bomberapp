@@ -1,64 +1,66 @@
 import { Module } from '@nestjs/common';
-import { Reto } from 'src/models/reto/reto';
 import { DataSource } from 'typeorm';
 import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
+import { Reto } from 'src/models/reto/reto';
 
 @Module({
-
-    imports: [],
-    exports: [DataSource],
     providers: [
         {
             provide: DataSource,
-            inject: [],
             useFactory: async () => {
-                try {
-                    const poolConexion = new DataSource({
-                        type: 'mysql',
-                        host: String(process.env.HOST),
-                        port: Number(process.env.PUERTO),
-                        database: String(process.env.BASE_DATOS),
-                        username: String(process.env.USUARIO),
-                        password: String(process.env.CLAVE),
-                        synchronize: false,  // Sincroniza la base de datos con los modelos
-                        logging: true,   // Muestra los logs de la base de datos
-                        namingStrategy: new SnakeNamingStrategy(),
-                        entities: [Reto], // Aqui van todas las entidades o clases
-                        driver: require('mysql2')
-                    })
+                const host = process.env.HOST || '127.0.0.1';
+                const port = Number(process.env.PUERTO) || 3306;
+                const database = process.env.BASE_DATOS || 'bd_bomberapp';
+                const username = process.env.USUARIO || 'root';
+                const password = process.env.CLAVE ?? '123456';
 
-                    await poolConexion.initialize();
+                const ds = new DataSource({
+                    type: 'mysql',
+                    host,
+                    port,
+                    database,
+                    username,
+                    password,
+                    // OJO: true solo en desarrollo para crear/alterar tablas automáticamente
+                    synchronize: false,
+                    logging: true,
+                    namingStrategy: new SnakeNamingStrategy(),
+                    entities: [Reto], // agrega aquí el resto de tus entidades
+                    // extra: { connectTimeout: 10000 }, // opcional
+                });
 
-                    console.log("Conexión establecida con: " + 
-                        String(process.env.BASE_DATOS)
-                    );
-
-                    console.log("Daticos de conexión: " + "\n" +
-                        "Host: " + String(process.env.HOST) + "\n" +
-                        "Port: " + Number(process.env.PUERTO) + "\n" +
-                        "User: " + String(process.env.USUARIO) + "\n" +
-                        "Password: " + String(process.env.CLAVE)
-                    )
-
-                    return poolConexion;
-
-                } catch (elError) {
-                    console.log("Error en la conexión");
-
-                    console.log("Daticos de conexión erronea: " + "\n" +
-                    "Host: " + String(process.env.HOST) + "\n" +
-                    "Port: " + Number(process.env.PUERTO) + "\n" +
-                    "User: " + String(process.env.USUARIO) + "\n" +
-                    "Password: " + String(process.env.CLAVE)
-                )
-                    throw elError;
+                // pequeño retry por si MySQL tarda en estar arriba
+                const maxRetries = 5;
+                let attempt = 0;
+                while (true) {
+                    try {
+                        await ds.initialize();
+                        console.log(
+                            `✅ Conexión OK → ${database} @ ${host}:${port} (user: ${username})`
+                        );
+                        return ds;
+                    } catch (err: any) {
+                        attempt++;
+                        console.error(
+                            `❌ Falló la conexión (intento ${attempt}/${maxRetries}).`,
+                            err?.code || err?.message
+                        );
+                        if (attempt >= maxRetries) {
+                            console.error(
+                                `Daticos de conexión fallida:
+                Host: ${host}
+                Port: ${port}
+                 User: ${username}
+                Password: ${password}`
+                            );
+                            throw err;
+                        }
+                        await new Promise((r) => setTimeout(r, 1500));
+                    }
                 }
-
-            }
-
-        }
-
+            },
+        },
     ],
+    exports: [DataSource],
 })
 export class ConexionModule { }
-
