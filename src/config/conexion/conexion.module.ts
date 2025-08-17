@@ -1,8 +1,11 @@
 import { Module } from '@nestjs/common';
+import { CargoUsuario } from 'src/models/cargo_usuario/cargo-usuario';
+import { EstadisticaUsuario } from 'src/models/estadistica-usuario/estadistica-usuario';
 import { ItemTienda } from 'src/models/item-tienda/item-tienda';
 import { Reto } from 'src/models/reto/reto';
 import { Rol } from 'src/models/rol/rol';
 import { TokenReinicioContrasena } from 'src/models/token-reinicio-contraseña/token-reinicio-contraseña';
+import { UsuarioReto } from 'src/models/usuario-reto/usuario-reto';
 import { Usuario } from 'src/models/usuario/usuario';
 import { DataSource } from 'typeorm';
 import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
@@ -27,7 +30,7 @@ import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
                         synchronize: false,  // Sincroniza la base de datos con los modelos
                         logging: true,   // Muestra los logs de la base de datos
                         namingStrategy: new SnakeNamingStrategy(),
-                        entities: [Reto, ItemTienda, Usuario, Rol, TokenReinicioContrasena], // Aqui van todas las entidades o clases
+                        entities: [Reto, ItemTienda, Usuario, Rol, TokenReinicioContrasena, UsuarioReto, CargoUsuario, EstadisticaUsuario], // Aqui van todas las entidades o clases
                         driver: require('mysql2')
                     })
 
