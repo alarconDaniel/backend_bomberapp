@@ -1,24 +1,29 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Usuario } from 'src/models/usuario/usuario';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
+import { Usuario } from 'src/models/usuario/usuario';
+import { Rol } from 'src/models/rol/rol';
+import { CargoUsuario } from 'src/models/cargo_usuario/cargo-usuario';
 import * as argon2 from 'argon2';
 
 export interface CrearUsuarioInput {
   nombreUsuario: string;
   apellidoUsuario: string;
   correoUsuario: string;
-  cargoUsuario: string;
+  codCargoUsuario?: number | null; // <-- opcional
   codRol: number;
   password: string; // el admin la define
 }
 
 @Injectable()
 export class UsuarioService {
-   private repo: Repository<Usuario>;
+  private repo: Repository<Usuario>;
+  private rolRepo: Repository<Rol>;
+  private cargoRepo: Repository<CargoUsuario>;
 
   constructor(private poolConexion: DataSource) {
     this.repo = this.poolConexion.getRepository(Usuario);
+    this.rolRepo = this.poolConexion.getRepository(Rol);
+    this.cargoRepo = this.poolConexion.getRepository(CargoUsuario);
   }
 
   async findByCorreo(correo: string) {
@@ -37,46 +42,63 @@ export class UsuarioService {
       { tokenVersion: (user.tokenVersion ?? 0) + 1, refreshTokenHash: null },
     );
   }
-  
+
   async updatePasswordHash(codUsuario: number, passwordHash: string) {
     await this.repo.update({ codUsuario }, { contrasenaUsuario: passwordHash });
   }
 
   async crearUsuario(data: CrearUsuarioInput) {
-    // validación básica
+    // 1) Validación básica password
     if (!data.password || data.password.trim().length < 8) {
       throw new BadRequestException('La contraseña debe tener al menos 8 caracteres');
     }
 
+    // 2) Correo único
     const existente = await this.findByCorreo(data.correoUsuario);
     if (existente) {
       throw new ConflictException('El correo ya está registrado');
     }
 
-    // hash argon2id (incluye salt aleatorio)
+    // 3) Validar rol existente
+    const rol = await this.rolRepo.findOne({ where: { codRol: data.codRol } });
+    if (!rol) {
+      throw new NotFoundException('El rol especificado no existe');
+    }
+
+    // 4) Validar cargo si viene (puede ser null/undefined)
+    let cargo: CargoUsuario | null = null;
+    if (data.codCargoUsuario !== undefined && data.codCargoUsuario !== null) {
+      cargo = await this.cargoRepo.findOne({ where: { codCargoUsuario: data.codCargoUsuario } });
+      if (!cargo) {
+        throw new NotFoundException('El cargo especificado no existe');
+      }
+    }
+
+    // 5) Hash argon2id
     const hash = await argon2.hash(data.password.trim(), { type: argon2.argon2id });
 
+    // 6) Crear usuario con RELACIONES (no campos planos)
     const nuevo = this.repo.create({
       nombreUsuario: data.nombreUsuario,
       apellidoUsuario: data.apellidoUsuario,
       correoUsuario: data.correoUsuario,
-      contrasenaUsuario: hash,  // 👈 guardar SOLO el hash
-      cargoUsuario: data.cargoUsuario,
-      codRol: data.codRol,      // tu PK compuesta incluye cod_rol
+      contrasenaUsuario: hash,
       refreshTokenHash: null,
       tokenVersion: 0,
+      rol,                   // ManyToOne Rol
+      cargo: cargo ?? null,  // ManyToOne Cargo (nullable)
     });
 
     const saved = await this.repo.save(nuevo);
 
-    // devuelve datos no sensibles (jamás la contraseña ni el hash)
+    // 7) Respuesta sin datos sensibles
     return {
       codUsuario: saved.codUsuario,
       correoUsuario: saved.correoUsuario,
       nombreUsuario: saved.nombreUsuario,
       apellidoUsuario: saved.apellidoUsuario,
-      cargoUsuario: saved.cargoUsuario,
-      codRol: saved.codRol,
+      codRol: saved.rol?.codRol,                          // desde la relación
+      codCargoUsuario: saved.cargo?.codCargoUsuario ?? null,
     };
   }
 }
