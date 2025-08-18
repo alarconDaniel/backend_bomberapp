@@ -24,7 +24,7 @@ export class AuthController {
   async login(@Body() dto: LoginDto) {
     const user = await this.auth.validateUser(dto.email, dto.password);
     const tokens = await this.auth.signTokens(user.codUsuario, user.correoUsuario);
-    return { user: { id: user.codUsuario, email: user.correoUsuario }, ...tokens };
+    return { user: { id: user.codUsuario, email: user.correoUsuario, rol: user.rol.nombreRol}, ...tokens };
     // En un paso posterior puedes guardar y verificar hash del refresh como hicimos en rotateRefreshToken
   }
 

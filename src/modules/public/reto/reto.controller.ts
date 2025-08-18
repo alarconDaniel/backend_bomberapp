@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Param } from '@nestjs/common';
 import { RetoService } from './reto.service';
 
 @Controller('reto')
@@ -10,4 +10,10 @@ export class RetoController {
     public listarRetos():any{
         return this.retoService.listarRetos();
     }
+
+    @Get("ver/:cod")
+    public verReto(@Param('cod')cod: string):any{
+        return this.retoService.verReto(Number(cod));
+    }
+
 }

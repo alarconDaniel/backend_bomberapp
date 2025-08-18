@@ -15,4 +15,8 @@ export class RetoService {
         return await this.retoRepository.find();
     }
 
+    public async verReto(cod: number): Promise<any>{
+        return await this.retoRepository.findOne({where: {codReto: cod}})
+    }
+
 }
