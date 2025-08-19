@@ -6,6 +6,7 @@ import { ConexionModule } from 'src/config/conexion/conexion.module';
 @Module({
   imports: [ConexionModule],
   controllers: [EstadisticaUsuarioController],
-  providers: [EstadisticaUsuarioService]
+  providers: [EstadisticaUsuarioService],
+  exports: [EstadisticaUsuarioService]
 })
 export class EstadisticaUsuarioModule {}

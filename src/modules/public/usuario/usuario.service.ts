@@ -26,6 +26,13 @@ export class UsuarioService {
     this.cargoRepo = this.poolConexion.getRepository(CargoUsuario);
   }
 
+  async findById(codUsuario: number): Promise<Usuario | null> {
+    return this.repo.findOne({
+      where: { codUsuario },
+      relations: ['rol', 'cargo', 'estadisticas'], // opcional; deja las que uses
+    });
+  }
+
   async findByCorreo(correo: string) {
     return this.repo.findOne({ where: { correoUsuario: correo } });
   }
@@ -101,7 +108,7 @@ export class UsuarioService {
       codCargoUsuario: saved.cargo?.codCargoUsuario ?? null,
     };
   }
-  
+
   /** Limpia el hash del refresh token del usuario (logout server-side). */
   async clearRefreshTokenHash(codUsuario: number) {
     await this.repo.update({ codUsuario }, { refreshTokenHash: null });
@@ -116,5 +123,26 @@ export class UsuarioService {
     } catch {
       return false;
     }
+  }
+
+  async updateNickname(codUsuario: number, nickname: string) {
+    await this.repo.update({ codUsuario }, { nicknameUsuario: nickname });
+    return { ok: true };
+  }
+
+  async changePassword(codUsuario: number, currentPw: string, newPw: string) {
+    const user = await this.repo.findOne({ where: { codUsuario } });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+
+    const ok = await argon2.verify(user.contrasenaUsuario, currentPw);
+    if (!ok) throw new BadRequestException('Contraseña actual inválida');
+
+    const hash = await argon2.hash(newPw, { type: argon2.argon2id });
+    await this.repo.update({ codUsuario }, { contrasenaUsuario: hash });
+
+    // Opcional pero sano: invalidar sesiones/refresh previos
+    await this.incrementTokenVersion(codUsuario);
+
+    return { ok: true };
   }
 }
