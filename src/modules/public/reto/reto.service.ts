@@ -11,18 +11,9 @@ export class RetoService {
     this.retoRepository = poolConexion.getRepository(Reto);
   }
 
-  // GET: lista simple
+  // GET: listar
   public async listarRetos(): Promise<Reto[]> {
     return await this.retoRepository.find();
-  }
-
-  // GET: detalle por id
-  public async buscarReto(codReto: number): Promise<Reto> {
-    const reto = await this.retoRepository.findOneBy({ codReto });
-    if (!reto) {
-      throw new HttpException('Reto no encontrado', HttpStatus.NOT_FOUND);
-    }
-    return reto;
   }
 
   // POST: crear
@@ -46,7 +37,7 @@ export class RetoService {
       if (result.affected === 0) {
         throw new HttpException('Reto no encontrado', HttpStatus.NOT_FOUND);
       }
-      return result; // UpdateResult
+      return result; 
     } catch (err) {
       if (err instanceof HttpException) throw err;
       throw new HttpException('No se actualiza', HttpStatus.BAD_REQUEST);
@@ -66,31 +57,5 @@ export class RetoService {
       throw new HttpException('No se borra', HttpStatus.BAD_REQUEST);
     }
   }
-
-  // Listado paginado + búsqueda por nombre/descripcion
-  public async listarPaginado(
-    page = 1,
-    limit = 10,
-    search?: string,
-  ): Promise<{ data: Reto[]; total: number; page: number; limit: number }> {
-    // Sanitiza page/limit
-    page = Math.max(1, Number(page) || 1);
-    limit = Math.max(1, Math.min(100, Number(limit) || 10));
-
-    const where: FindOptionsWhere<Reto>[] | undefined = search
-      ? [
-          { nombreReto: ILike(`%${search}%`) },
-          { descripcionReto: ILike(`%${search}%`) },
-        ]
-      : undefined;
-
-    const [data, total] = await this.retoRepository.findAndCount({
-      where,
-      skip: (page - 1) * limit,
-      take: limit,
-      order: { codReto: 'DESC' },
-    });
-
-    return { data, total, page, limit };
-  }
+  
 }

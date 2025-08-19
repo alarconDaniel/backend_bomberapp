@@ -1,6 +1,6 @@
 import { Column, Entity, PrimaryGeneratedColumn } from "typeorm";
 
-@Entity("retos", { schema: "public" })
+@Entity("retos")
 export class Reto {
 
   @PrimaryGeneratedColumn({ name: "cod_reto", type: "integer" })

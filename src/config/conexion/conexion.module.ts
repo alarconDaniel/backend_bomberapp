@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
 import { Reto } from 'src/models/reto/reto';
+import { Usuario } from 'src/models/usuario/usuario';
 
 @Module({
     providers: [
@@ -21,11 +22,10 @@ import { Reto } from 'src/models/reto/reto';
                     database,
                     username,
                     password,
-                    // OJO: true solo en desarrollo para crear/alterar tablas automáticamente
                     synchronize: false,
                     logging: true,
                     namingStrategy: new SnakeNamingStrategy(),
-                    entities: [Reto], // agrega aquí el resto de tus entidades
+                    entities: [Reto, Usuario], // agrega aquí el resto de tus entidades
                     // extra: { connectTimeout: 10000 }, // opcional
                 });
 
