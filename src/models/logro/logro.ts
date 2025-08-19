@@ -16,7 +16,4 @@ export class Logro {
 
   @Column({ name: 'recompensa_logro', type: 'varchar', length: 255 })
   recompensaLogro!: string;
-
-  @Column({ name: 'fecha_obtencion_logro', type: 'datetime', default: () => 'CURRENT_TIMESTAMP' })
-  fechaObtencionLogro!: Date;
 }

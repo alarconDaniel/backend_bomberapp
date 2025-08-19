@@ -15,9 +15,6 @@ export class UsuarioLogro {
   @JoinColumn({ name: 'cod_logro', referencedColumnName: 'codLogro' })
   logro!: Logro;
 
-  @Column({ name: 'cod_usuario', type: 'int' })
-  codUsuario!: number;
-
-  @Column({ name: 'cod_logro', type: 'int' })
-  codLogro!: number;
+  @Column({name: "fecha_obtencion_logro", type: 'datetime', default: () => 'CURRENT_TIMESTAMP' })
+  fechaObtencionLogro: string;
 }
