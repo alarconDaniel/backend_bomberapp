@@ -12,6 +12,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { UsuarioRetoModule } from './modules/public/usuario-reto/usuario-reto.module';
 import { EstadisticaUsuarioModule } from './modules/public/estadistica-usuario/estadistica-usuario.module';
+import { ItemInventarioModule } from './modules/public/item_inventario/item_inventario.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { EstadisticaUsuarioModule } from './modules/public/estadistica-usuario/e
     UsuarioModule,
     UsuarioRetoModule,
     EstadisticaUsuarioModule,
+    ItemInventarioModule,
   ],
   controllers: [AppController],
   providers: [
