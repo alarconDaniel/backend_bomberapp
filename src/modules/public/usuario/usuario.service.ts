@@ -101,4 +101,20 @@ export class UsuarioService {
       codCargoUsuario: saved.cargo?.codCargoUsuario ?? null,
     };
   }
+  
+  /** Limpia el hash del refresh token del usuario (logout server-side). */
+  async clearRefreshTokenHash(codUsuario: number) {
+    await this.repo.update({ codUsuario }, { refreshTokenHash: null });
+  }
+
+  /** Verifica que el refresh entrante coincide con el hash guardado. */
+  async verifyRefreshToken(codUsuario: number, refreshRaw: string): Promise<boolean> {
+    const user = await this.repo.findOne({ where: { codUsuario } });
+    if (!user?.refreshTokenHash) return false;
+    try {
+      return await argon2.verify(user.refreshTokenHash, refreshRaw);
+    } catch {
+      return false;
+    }
+  }
 }
