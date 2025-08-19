@@ -13,9 +13,9 @@ export class Reto {
   public descripcionReto: string | null;
 
   @Column({ name: "tiempo_reto", type: "integer", nullable: true })
-  public tiempoReto: number | null; // minutos, horas, etc. según tu modelo
+  public tiempoReto: number | null;
 
-  // Usa "date" si solo te importa la fecha; usa "timestamp" si necesitas hora
+
   @Column({ name: "fecha_inicio_reto", type: "date", nullable: true })
   public fechaInicioReto: Date | null;
 
