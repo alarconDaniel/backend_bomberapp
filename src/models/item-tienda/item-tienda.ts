@@ -4,20 +4,20 @@ import { Column, Entity, PrimaryGeneratedColumn } from "typeorm";
 export class ItemTienda {
 
     @PrimaryGeneratedColumn({ name: "cod_item" })
-    private codItem: number;
+    codItem: number;
 
     @Column({ name: "nombre_item" })
-    private nombreItem: string;
+    nombreItem: string;
 
     @Column({ name: "descripcion_item" })
-    private desripcionItem: string;
+    desripcionItem: string;
 
     @Column({ name: "precio_item" })
-    private precioItem: number;
+    precioItem: number;
 
     @Column({ name: "tipo_item" })
-    private tipoItem: string;
+    tipoItem: string;
 
     // @Column({ name: "metadata_item" })
-    // private metadataItem: JSON;
+    // metadataItem: JSON;
 }
