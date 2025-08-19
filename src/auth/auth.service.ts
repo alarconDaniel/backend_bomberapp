@@ -35,13 +35,17 @@ export class AuthService {
   }
 
   async signTokens(userId: number, correo: string) {
+
+    const ACCESS_TTL = this.cfg.get<string>('JWT_ACCESS_TTL') || '15m';
+    const REFRESH_TTL = this.cfg.get<string>('JWT_REFRESH_TTL') || '7d';
+
     const payload = { sub: userId, email: correo };
     const access_token = await this.jwt.signAsync(payload, {
-      expiresIn: '15m',
+      expiresIn: ACCESS_TTL,
       secret: this.jwtSecret,                  // <-- aquí
     });
     const refresh_token = await this.jwt.signAsync(payload, {
-      expiresIn: '7d',
+      expiresIn: REFRESH_TTL,
       secret: this.jwtSecret,                  // <-- y aquí
     });
     return { access_token, refresh_token };
@@ -108,5 +112,19 @@ export class AuthService {
     await this.tokenRepo.delete({ codToken: record.codToken, codUsuario: record.codUsuario });
 
     return { ok: true };
+  }
+
+  // -- LogOut -- 
+
+  // auth.service.ts
+  async invalidateRefresh(refreshToken: string) {
+    // Si guardas hash del refresh por usuario:
+    const payload = await this.jwt.verifyAsync(refreshToken, { secret: this.jwtSecret });
+    const user = await this.usuarios.findByCorreo(payload.email);
+    if (!user) return;
+    // opción A: borrar hash guardado
+    await this.usuarios.clearRefreshTokenHash(user.codUsuario);
+    // opción B: incrementar versionado para invalidar todos los refresh previos
+    await this.usuarios.incrementTokenVersion(user.codUsuario);
   }
 }

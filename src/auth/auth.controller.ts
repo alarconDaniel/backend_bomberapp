@@ -24,8 +24,12 @@ export class AuthController {
   async login(@Body() dto: LoginDto) {
     const user = await this.auth.validateUser(dto.email, dto.password);
     const tokens = await this.auth.signTokens(user.codUsuario, user.correoUsuario);
-    return { user: { id: user.codUsuario, email: user.correoUsuario, rol: user.rol.nombreRol}, ...tokens };
-    // En un paso posterior puedes guardar y verificar hash del refresh como hicimos en rotateRefreshToken
+    // Guarda hash del refresh recién emitido
+    await this.users.setRefreshTokenHash(
+      user.codUsuario,
+      await this.auth.hashPassword(tokens.refresh_token),
+    );
+    return { user: { id: user.codUsuario, email: user.correoUsuario, rol: user.rol.nombreRol }, ...tokens };
   }
 
   @Public()
@@ -36,8 +40,10 @@ export class AuthController {
     });
     const user = await this.users.findByCorreo(decoded.email);
     if (!user) throw new UnauthorizedException();
+    // 👇 Verifica contra el hash guardado
+    const ok = await this.users.verifyRefreshToken(user.codUsuario, body.refresh_token);
+    if (!ok) throw new UnauthorizedException('Refresh inválido');
 
-    // 👈 Pasa el refresh recibido como segundo parámetro
     return this.auth.rotateRefreshToken(user, body.refresh_token);
   }
 
@@ -58,4 +64,21 @@ export class AuthController {
   async reset(@Body() dto: ResetPasswordDto) {
     return this.auth.resetPasswordWithToken(dto.token, dto.newPassword);
   }
+
+  // --- LogOut ---
+
+  // auth.controller.ts
+  @Public()
+  @Post('logout')
+  async logout(@Body() body: { refresh_token: string }) {
+    const decoded = await this.jwt.verifyAsync(body.refresh_token, {
+      secret: this.cfg.get<string>('JWT_SECRET') || 'dev_fallback_secret',
+    });
+    const user = await this.users.findByCorreo(decoded.email);
+    if (user) await this.users.clearRefreshTokenHash(user.codUsuario);
+    return { ok: true };
+  }
+
+
+
 }
