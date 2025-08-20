@@ -25,6 +25,12 @@ export class Usuario {
   @Column({ name: 'apellido_usuario', type: 'varchar', length: 255 })
   apellidoUsuario!: string;
 
+  @Column({ name: 'cedula_usuario', type: 'varchar', length: 255 })
+  cedulaUsuario!: string;
+
+  @Column({ name: 'nickname_usuario', type: 'varchar', length: 255 })
+  nicknameUsuario!: string;
+
   @Column({ name: 'correo_usuario', type: 'varchar', length: 255 })
   correoUsuario!: string;
 

@@ -11,6 +11,6 @@ import { ConexionModule } from 'src/config/conexion/conexion.module';
   imports: [ConexionModule],
   controllers: [UsuarioController],
   providers: [UsuarioService],
-  exports: [UsuarioService]
+  exports: [UsuarioService],
 })
 export class UsuarioModule {}
