@@ -26,6 +26,13 @@ export class UsuarioService {
     this.cargoRepo = this.poolConexion.getRepository(CargoUsuario);
   }
 
+  async findById(codUsuario: number): Promise<Usuario | null> {
+    return this.repo.findOne({
+      where: { codUsuario },
+      relations: ['rol', 'cargo', 'estadisticas'], // opcional; deja las que uses
+    });
+  }
+
   async findByCorreo(correo: string) {
     return this.repo.findOne({ where: { correoUsuario: correo } });
   }

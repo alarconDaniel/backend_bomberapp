@@ -48,13 +48,13 @@ export class ItemTiendaService {
       await statsRepo.save(stats);
 
       // Upsert inventario (sumar si ya existe)
-      let inv = await invRepo.findOne({ where: { codUsuario, codItem } });
+      let inv = await invRepo.findOne({ where: { usuario: {codUsuario}, item: {codItem} } });
       if (inv) {
         inv.cantidad = inv.cantidad + cantidad;
       } else {
         inv = invRepo.create({
-          codUsuario,
-          codItem,
+          usuario: {codUsuario},
+          item: {codItem},
           cantidad,
         });
       }

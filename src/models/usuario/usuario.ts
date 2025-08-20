@@ -7,10 +7,12 @@ import {
   PrimaryGeneratedColumn,
   Index,
   OneToOne,
+  OneToMany,
 } from 'typeorm';
 import { Rol } from '../rol/rol';
 import { CargoUsuario } from '../cargo_usuario/cargo-usuario';
 import { EstadisticaUsuario } from '../estadistica-usuario/estadistica-usuario';
+import { ItemInventario } from '../item_inventario/item_inventario';
 
 @Entity({ name: 'usuarios' })
 export class Usuario {
@@ -47,4 +49,8 @@ export class Usuario {
 
   @OneToOne(() => EstadisticaUsuario, (e) => e.usuario)
   estadisticas!: EstadisticaUsuario | null;
+
+  @OneToMany(() => ItemInventario, (ii) => ii.usuario)
+  itemsInventario: ItemInventario[];
+
 }

@@ -1,4 +1,5 @@
-import { Column, Entity, PrimaryGeneratedColumn } from "typeorm";
+import { Column, Entity, OneToMany, PrimaryGeneratedColumn } from "typeorm";
+import { ItemInventario } from "../item_inventario/item_inventario";
 
 @Entity("items_tienda")
 export class ItemTienda {
@@ -20,4 +21,9 @@ export class ItemTienda {
 
     // @Column({ name: "metadata_item" })
     // metadataItem: JSON;
+
+
+    @OneToMany(() => ItemInventario, (ii) => ii.item)
+    itemsInventario: ItemInventario[];
+
 }
