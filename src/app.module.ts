@@ -17,6 +17,8 @@ import { LogroModule } from './modules/public/logro/logro.module';
 import { UsuarioLogroModule } from './modules/public/usuario-logro/usuario-logro.module';
 
 import { PerfilModule } from './modules/public/perfil/perfil.module';
+import { TrofeoModule } from './modules/public/trofeo/trofeo.module';
+import { RankingModule } from './modules/public/ranking/ranking.module';
 
 @Module({
   imports: [
@@ -32,6 +34,8 @@ import { PerfilModule } from './modules/public/perfil/perfil.module';
     LogroModule,
     UsuarioLogroModule,
     PerfilModule,
+    TrofeoModule,
+    RankingModule,
   ],
   controllers: [AppController],
   providers: [

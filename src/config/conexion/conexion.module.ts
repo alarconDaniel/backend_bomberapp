@@ -7,6 +7,7 @@ import { Logro } from 'src/models/logro/logro';
 import { Reto } from 'src/models/reto/reto';
 import { Rol } from 'src/models/rol/rol';
 import { TokenReinicioContrasena } from 'src/models/token-reinicio-contraseña/token-reinicio-contraseña';
+import { Trofeo } from 'src/models/trofeo/trofeo';
 import { UsuarioLogro } from 'src/models/usuario-logro/usuario-logro';
 import { UsuarioReto } from 'src/models/usuario-reto/usuario-reto';
 import { Usuario } from 'src/models/usuario/usuario';
@@ -33,7 +34,7 @@ import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
                         synchronize: false,  // Sincroniza la base de datos con los modelos
                         logging: true,   // Muestra los logs de la base de datos
                         namingStrategy: new SnakeNamingStrategy(),
-                        entities: [Reto, ItemTienda, Usuario, Rol, TokenReinicioContrasena, UsuarioReto, CargoUsuario, EstadisticaUsuario, ItemInventario, Logro, UsuarioLogro], // Aqui van todas las entidades o clases
+                        entities: [Reto, ItemTienda, Usuario, Rol, TokenReinicioContrasena, UsuarioReto, CargoUsuario, EstadisticaUsuario, ItemInventario, Logro, UsuarioLogro, Trofeo], // Aqui van todas las entidades o clases
                         driver: require('mysql2')
                     })
 
