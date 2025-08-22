@@ -19,6 +19,7 @@ import { UsuarioLogroModule } from './modules/public/usuario-logro/usuario-logro
 import { PerfilModule } from './modules/public/perfil/perfil.module';
 import { TrofeoModule } from './modules/public/trofeo/trofeo.module';
 import { RankingModule } from './modules/public/ranking/ranking.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { RankingModule } from './modules/public/ranking/ranking.module';
     PerfilModule,
     TrofeoModule,
     RankingModule,
+    ScheduleModule.forRoot(), // 👈 habilita cron jobs
   ],
   controllers: [AppController],
   providers: [
@@ -43,4 +45,4 @@ import { RankingModule } from './modules/public/ranking/ranking.module';
     { provide: APP_GUARD, useClass: JwtAuthGuard }, // <-- TODAS las rutas protegidas salvo @Public()
   ],
 })
-export class AppModule {}
+export class AppModule { }
