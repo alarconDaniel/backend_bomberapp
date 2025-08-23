@@ -6,11 +6,8 @@ import {
   PrimaryColumn,
   BeforeInsert,
   BeforeUpdate,
-  ManyToOne,
-  JoinColumn,
 } from 'typeorm';
-import { Rol } from '../rol/rol';
-import { CargoUsuario } from '../cargo-usuario/cargo-usuario';
+
 
 @Entity({ name: 'usuarios' })
 export class Usuario {
@@ -47,17 +44,6 @@ export class Usuario {
 
   @Column({ name: 'token_version', type: 'int', default: 0 })
   tokenVersion!: number;
-
-  // ---------- Relaciones ----------
-  // FK → roles.cod_rol (obligatoria)
-  @ManyToOne(() => Rol, { nullable: false })
-  @JoinColumn({ name: 'cod_rol', referencedColumnName: 'codRol' })
-  rol!: Rol;
-
-  // FK → cargos_usuarios.cod_cargo_usuario (opcional / NULLable)
-  @ManyToOne(() => CargoUsuario, { nullable: true })
-  @JoinColumn({ name: 'cod_cargo_usuario', referencedColumnName: 'codCargoUsuario' })
-  cargo!: CargoUsuario | null;
 
   // ---------- Normalización ----------
   @BeforeInsert()

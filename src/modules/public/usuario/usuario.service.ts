@@ -1,4 +1,3 @@
-// src/modules/public/usuario/usuario.service.ts
 import {
   ConflictException,
   HttpException,
@@ -61,12 +60,11 @@ export class UsuarioService {
       if (!body.contrasenaUsuario?.trim()) {
         throw new HttpException('contrasenaUsuario es requerida', HttpStatus.BAD_REQUEST);
       }
-      // normalizaciones
       body.correoUsuario = body.correoUsuario?.trim().toLowerCase();
       body.nicknameUsuario = body.nicknameUsuario?.trim() ?? null;
 
       const entity = this.repo.create({
-        codRol: body.codRol, // ← requerido por tu PK/DDL
+        codRol: body.codRol,
         nombreUsuario: body.nombreUsuario!,
         apellidoUsuario: body.apellidoUsuario!,
         cedulaUsuario: body.cedulaUsuario!,
@@ -75,18 +73,16 @@ export class UsuarioService {
         contrasenaUsuario: body.contrasenaUsuario!,
         refreshTokenHash: body.refreshTokenHash ?? null,
         tokenVersion: body.tokenVersion ?? 0,
-        codCargoUsuario: body.codCargoUsuario ?? null, // opcional
+        codCargoUsuario: body.codCargoUsuario ?? null,
       });
 
       const saved = await this.repo.save(entity);
       const { contrasenaUsuario, refreshTokenHash, ...safe } = saved as any;
       return safe;
     } catch (e: any) {
-      // Duplicado (correo único) → 409
       if (e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062) {
         throw new ConflictException('Correo ya registrado (duplicado)');
       }
-      // FK inválida (rol o cargo no existen) → 400
       if (e?.code === 'ER_NO_REFERENCED_ROW_2' || e?.errno === 1452) {
         throw new HttpException('Rol/Cargo inválido (violación de FK)', HttpStatus.BAD_REQUEST);
       }
@@ -99,22 +95,36 @@ export class UsuarioService {
     if (!obj.codUsuario) {
       throw new HttpException('codUsuario es requerido', HttpStatus.BAD_REQUEST);
     }
+
     const current = await this.repo.findOne({ where: { codUsuario: obj.codUsuario } });
     if (!current) throw new NotFoundException('Usuario no encontrado');
 
-    // No intentes cambiar codRol (parte de la PK). Lo dejamos tal cual.
+    // Normaliza y pre-chequea correo duplicado si cambia
+    const nextCorreo = obj.correoUsuario ? obj.correoUsuario.trim().toLowerCase() : undefined;
+
+    if (nextCorreo && nextCorreo !== current.correoUsuario) {
+      const yaExiste = await this.repo.findOne({
+        where: { correoUsuario: nextCorreo },
+        select: ['codUsuario'],
+      });
+      if (yaExiste && yaExiste.codUsuario !== current.codUsuario) {
+        throw new ConflictException('Correo ya registrado (duplicado)');
+      }
+    }
+
+    // No modificar codRol (parte de la PK compuesta)
     const updates: Partial<Usuario> = {
       nombreUsuario: obj.nombreUsuario ?? current.nombreUsuario,
       apellidoUsuario: obj.apellidoUsuario ?? current.apellidoUsuario,
       cedulaUsuario: obj.cedulaUsuario ?? current.cedulaUsuario,
       nicknameUsuario:
-        obj.nicknameUsuario !== undefined ? obj.nicknameUsuario?.trim() ?? null : current.nicknameUsuario,
-      correoUsuario: obj.correoUsuario ? obj.correoUsuario.trim().toLowerCase() : current.correoUsuario,
+        obj.nicknameUsuario !== undefined ? (obj.nicknameUsuario?.trim() ?? null) : current.nicknameUsuario,
+      correoUsuario: nextCorreo ?? current.correoUsuario,
       contrasenaUsuario: obj.contrasenaUsuario ?? current.contrasenaUsuario,
       refreshTokenHash: obj.refreshTokenHash ?? current.refreshTokenHash,
       tokenVersion: obj.tokenVersion ?? current.tokenVersion,
       codCargoUsuario: obj.codCargoUsuario ?? current.codCargoUsuario,
-      codRol: current.codRol, // ← mantenemos
+      codRol: current.codRol, // mantener
     };
 
     const merged = this.repo.merge(current, updates);
