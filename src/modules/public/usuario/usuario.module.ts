@@ -1,15 +1,11 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { Usuario } from 'src/models/usuario/usuario';
 import { UsuarioController } from './usuario.controller';
 import { UsuarioService } from './usuario.service';
+// Si NO usas @Global en ConexionModule, importa aquí:
 import { ConexionModule } from 'src/config/conexion/conexion.module';
 
 @Module({
-  imports: [
-    ConexionModule,                 // tu forRoot(...)
-    TypeOrmModule.forFeature([Usuario]), // registra el repo de Usuario
-  ],
+  imports: [ConexionModule], // ← solo si NO marcaste @Global
   controllers: [UsuarioController],
   providers: [UsuarioService],
   exports: [UsuarioService],

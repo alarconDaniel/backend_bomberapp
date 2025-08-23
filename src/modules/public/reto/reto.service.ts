@@ -1,61 +1,71 @@
-// src/services/reto/reto.service.ts
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { DataSource, Repository, ILike, FindOptionsWhere } from 'typeorm';
+// src/modules/public/reto/reto.service.ts
+import { Injectable, NotFoundException, HttpException, HttpStatus } from '@nestjs/common';
+import { DataSource, Repository } from 'typeorm';
 import { Reto } from 'src/models/reto/reto';
 
 @Injectable()
 export class RetoService {
-  private retoRepository: Repository<Reto>;
+  private readonly repo: Repository<Reto>;
 
-  constructor(private poolConexion: DataSource) {
-    this.retoRepository = poolConexion.getRepository(Reto);
+  constructor(private readonly ds: DataSource) {
+    this.repo = this.ds.getRepository(Reto);
   }
 
-  // GET: listar
-  public async listarRetos(): Promise<Reto[]> {
-    return await this.retoRepository.find();
+  /**
+   * Lista de retos (array). Selecciona solo columnas necesarias.
+   */
+  public listar(): Promise<Partial<Reto>[]> {
+    return this.repo.find({
+      select: [
+        'codReto',
+        'nombreReto',
+        'descripcionReto',
+        'tiempoEstimadoSegReto',
+        'fechaInicioReto',
+        'fechaFinReto',
+      ],
+      order: { codReto: 'ASC' },
+    });
   }
 
-  // POST: crear
-  public async crearReto(objReto: Reto): Promise<Reto> {
+  /**
+   * Crear reto. Devuelve el registro guardado (sin transformaciones).
+   */
+  public async crear(payload: Partial<Reto>): Promise<Partial<Reto>> {
     try {
-      return await this.retoRepository.save(objReto);
-    } catch (err) {
-      throw new HttpException('Falla al registrar', HttpStatus.BAD_REQUEST);
+      const reto = this.repo.create(payload as Reto);
+      const saved = await this.repo.save(reto);
+      return saved; // Reto es compatible con Partial<Reto>
+    } catch (e: any) {
+      throw new HttpException('No se pudo crear el reto', HttpStatus.BAD_REQUEST);
     }
   }
 
-  // PUT: actualizar
-  public async modificarReto(objActualizar: Reto): Promise<any> {
-    try {
-      if (!objActualizar.codReto) {
-        throw new HttpException('codReto es requerido', HttpStatus.BAD_REQUEST);
-      }
-      const { codReto } = objActualizar;
-      const result = await this.retoRepository.update({ codReto }, objActualizar);
-
-      if (result.affected === 0) {
-        throw new HttpException('Reto no encontrado', HttpStatus.NOT_FOUND);
-      }
-      return result; 
-    } catch (err) {
-      if (err instanceof HttpException) throw err;
-      throw new HttpException('No se actualiza', HttpStatus.BAD_REQUEST);
-    }
+  /**
+   * Borrar reto por ID.
+   */
+  public async borrar(codReto: number): Promise<{ ok: true }> {
+    const r = await this.repo.delete({ codReto });
+    if (!r.affected) throw new NotFoundException('Reto no encontrado');
+    return { ok: true };
   }
 
-  // DELETE: borrar
-  public async borrarReto(codReto: number): Promise<any> {
-    try {
-      const result = await this.retoRepository.delete({ codReto });
-      if (result.affected === 0) {
-        throw new HttpException('Reto no encontrado', HttpStatus.NOT_FOUND);
-      }
-      return result; // DeleteResult
-    } catch (err) {
-      if (err instanceof HttpException) throw err;
-      throw new HttpException('No se borra', HttpStatus.BAD_REQUEST);
-    }
+  /**
+   * Detalle de reto por ID.
+   */
+  public async detalle(codReto: number): Promise<Partial<Reto>> {
+    const reto = await this.repo.findOne({
+      where: { codReto },
+      select: [
+        'codReto',
+        'nombreReto',
+        'descripcionReto',
+        'tiempoEstimadoSegReto',
+        'fechaInicioReto',
+        'fechaFinReto',
+      ],
+    });
+    if (!reto) throw new NotFoundException('Reto no encontrado');
+    return reto;
   }
-  
 }

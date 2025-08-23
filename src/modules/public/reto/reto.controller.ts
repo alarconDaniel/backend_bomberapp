@@ -1,38 +1,22 @@
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { RetoService } from './reto.service';
 
-import {
-    Controller, Get, Post, Put, Delete,
-    Param, Body, ParseIntPipe, 
-  } from '@nestjs/common';
-  import { RetoService } from './reto.service';
-  import { Reto } from 'src/models/reto/reto';
-  
-  @Controller('reto')
-  export class RetoController {
-    constructor(private readonly retoService: RetoService) {}
-  
-    @Get('listar')
-    public listarRetos(): Promise<Reto[]> {
-      return this.retoService.listarRetos();
-    }
+@Controller('reto')
+export class RetoController {
+  constructor(private readonly svc: RetoService) {}
 
-  
-    @Post('crear')
-    public crearReto(@Body() objReto: Reto): Promise<Reto> {
-      return this.retoService.crearReto(objReto);
-    }
-  
- 
-    @Put('modificar')
-    public modificarReto(@Body() objActualizar: Reto) {
-      return this.retoService.modificarReto(objActualizar);
-    }
-  
-    
-    @Delete('borrar/:codReto')
-    public borrarReto(
-      @Param('codReto', ParseIntPipe) codReto: number,
-    ) {
-      return this.retoService.borrarReto(codReto);
-    }
+  @Get('listar')
+  listar() {
+    return this.svc.listar(); // ← devuelve ARRAY directo (tu front ya lo espera)
   }
-  
+
+  @Post('crear')
+  crear(@Body() body: any) {
+    return this.svc.crear(body);
+  }
+
+  @Delete('borrar/:codReto')
+  borrar(@Param('codReto', ParseIntPipe) codReto: number) {
+    return this.svc.borrar(codReto);
+  }
+}
