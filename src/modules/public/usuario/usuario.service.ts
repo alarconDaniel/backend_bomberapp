@@ -1,76 +1,95 @@
-// src/services/usuario/usuario.service.ts
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { DataSource, Repository } from 'typeorm';
+import {
+  ConflictException, HttpException, HttpStatus,
+  Injectable, NotFoundException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { Usuario } from 'src/models/usuario/usuario';
 
 @Injectable()
 export class UsuarioService {
-  private usuarioRepository: Repository<Usuario>;
+  constructor(
+    @InjectRepository(Usuario)
+    private readonly usuarioRepository: Repository<Usuario>,
+  ) {}
 
-  constructor(private poolConexion: DataSource) {
-    this.usuarioRepository = poolConexion.getRepository(Usuario);
+  // LISTAR: selecciona solo columnas que EXISTEN en tu tabla
+  public listarUsuarios(): Promise<Partial<Usuario>[]> {
+    return this.usuarioRepository.find({
+      select: [
+        'codUsuario',
+        'nombreUsuario',
+        'apellidoUsuario',
+        'correoUsuario',
+        'nicknameUsuario',
+        'cedulaUsuario',
+      ],
+      order: { codUsuario: 'ASC' },
+    });
   }
 
-  // GET: listar
-  public async listarUsuarios(): Promise<Usuario[]> {
-    return await this.usuarioRepository.find();
+  // DETALLE: idem con select
+  public async buscarUsuario(codUsuario: number): Promise<Partial<Usuario>> {
+    const u = await this.usuarioRepository.findOne({
+      where: { codUsuario },
+      select: [
+        'codUsuario',
+        'nombreUsuario',
+        'apellidoUsuario',
+        'correoUsuario',
+        'nicknameUsuario',
+        'cedulaUsuario',
+      ],
+    });
+    if (!u) throw new NotFoundException('Usuario no encontrado');
+    return u;
   }
 
-  // GET: detalle por id
-  public async buscarUsuario(codUsuario: number): Promise<Usuario> {
-    const usuario = await this.usuarioRepository.findOneBy({ codUsuario });
-    if (!usuario) {
-      throw new HttpException('Usuario no encontrado', HttpStatus.NOT_FOUND);
-    }
-    return usuario;
-  }
-
-  // POST: crear
-  public async crearUsuario(objUsuario: Usuario): Promise<Usuario> {
+  // CREAR: normaliza y devuelve sin campos sensibles
+  public async crearUsuario(objUsuario: Usuario): Promise<Partial<Usuario>> {
     try {
-      return await this.usuarioRepository.save(objUsuario);
+      if (objUsuario.correoUsuario) objUsuario.correoUsuario = objUsuario.correoUsuario.trim().toLowerCase();
+      if (objUsuario.nicknameUsuario) objUsuario.nicknameUsuario = objUsuario.nicknameUsuario.trim();
+
+      const saved = await this.usuarioRepository.save(objUsuario);
+      const { contrasenaUsuario, refreshTokenHash, ...safe } = saved as any;
+      return safe;
     } catch (err: any) {
-      // Manejo de correo duplicado (MySQL)
       if (err?.code === 'ER_DUP_ENTRY' || err?.errno === 1062) {
-        throw new HttpException('Correo ya registrado', HttpStatus.CONFLICT);
+        throw new ConflictException('Correo/Nickname/Cédula ya registrado');
       }
       throw new HttpException('Falla al registrar', HttpStatus.BAD_REQUEST);
     }
   }
 
-  // PUT: actualizar
-  public async modificarUsuario(objActualizar: Usuario): Promise<any> {
+  // MODIFICAR: usa preload+save para que corran hooks y valide existencia
+  public async modificarUsuario(objActualizar: Usuario): Promise<Partial<Usuario>> {
+    if (!objActualizar.codUsuario) {
+      throw new HttpException('codUsuario es requerido', HttpStatus.BAD_REQUEST);
+    }
     try {
-      if (!objActualizar.codUsuario) {
-        throw new HttpException('codUsuario es requerido', HttpStatus.BAD_REQUEST);
-      }
-      const { codUsuario } = objActualizar;
-      const result = await this.usuarioRepository.update({ codUsuario }, objActualizar);
+      const merged = await this.usuarioRepository.preload(objActualizar as any);
+      if (!merged) throw new NotFoundException('Usuario no encontrado');
 
-      if (result.affected === 0) {
-        throw new HttpException('Usuario no encontrado', HttpStatus.NOT_FOUND);
-      }
-      return result; 
+      if (merged.correoUsuario) merged.correoUsuario = merged.correoUsuario.trim().toLowerCase();
+      if (merged.nicknameUsuario) merged.nicknameUsuario = merged.nicknameUsuario.trim();
+
+      const saved = await this.usuarioRepository.save(merged);
+      const { contrasenaUsuario, refreshTokenHash, ...safe } = saved as any;
+      return safe;
     } catch (err: any) {
-      if (err instanceof HttpException) throw err;
       if (err?.code === 'ER_DUP_ENTRY' || err?.errno === 1062) {
-        throw new HttpException('Correo ya registrado', HttpStatus.CONFLICT);
+        throw new ConflictException('Correo/Nickname/Cédula ya registrado');
       }
+      if (err instanceof HttpException) throw err;
       throw new HttpException('No se actualiza', HttpStatus.BAD_REQUEST);
     }
   }
 
-  // DELETE: borrar
-  public async borrarUsuario(codUsuario: number): Promise<any> {
-    try {
-      const result = await this.usuarioRepository.delete({ codUsuario });
-      if (result.affected === 0) {
-        throw new HttpException('Usuario no encontrado', HttpStatus.NOT_FOUND);
-      }
-      return result; 
-    } catch (err) {
-      if (err instanceof HttpException) throw err;
-      throw new HttpException('No se borra', HttpStatus.BAD_REQUEST);
-    }
+  // BORRAR
+  public async borrarUsuario(codUsuario: number): Promise<{ ok: true }> {
+    const r = await this.usuarioRepository.delete({ codUsuario });
+    if (!r.affected) throw new NotFoundException('Usuario no encontrado');
+    return { ok: true };
   }
 }
