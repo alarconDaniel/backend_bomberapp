@@ -1,3 +1,4 @@
+// src/modules/public/usuario/usuario.service.ts
 import {
   ConflictException,
   HttpException,
@@ -16,20 +17,18 @@ export class UsuarioService {
     this.repo = ds.getRepository(Usuario);
   }
 
-  // Lista sin datos sensibles
   listarUsuarios(): Promise<Partial<Usuario>[]> {
     return this.repo.find({
       select: [
         'codUsuario',
+        'codRol',
         'nombreUsuario',
         'apellidoUsuario',
         'cedulaUsuario',
         'nicknameUsuario',
         'correoUsuario',
         'tokenVersion',
-        'activo',
-        'creadoEn',
-        'actualizadoEn',
+        'codCargoUsuario',
       ],
       order: { codUsuario: 'ASC' },
     });
@@ -40,15 +39,14 @@ export class UsuarioService {
       where: { codUsuario },
       select: [
         'codUsuario',
+        'codRol',
         'nombreUsuario',
         'apellidoUsuario',
         'cedulaUsuario',
         'nicknameUsuario',
         'correoUsuario',
         'tokenVersion',
-        'activo',
-        'creadoEn',
-        'actualizadoEn',
+        'codCargoUsuario',
       ],
     });
     if (!u) throw new NotFoundException('Usuario no encontrado');
@@ -57,32 +55,40 @@ export class UsuarioService {
 
   async crearUsuario(body: Partial<Usuario>): Promise<Partial<Usuario>> {
     try {
+      if (!body.codRol) {
+        throw new HttpException('codRol es requerido', HttpStatus.BAD_REQUEST);
+      }
       if (!body.contrasenaUsuario?.trim()) {
         throw new HttpException('contrasenaUsuario es requerida', HttpStatus.BAD_REQUEST);
       }
-      // normalizaciones (la entidad también tiene @BeforeInsert)
+      // normalizaciones
       body.correoUsuario = body.correoUsuario?.trim().toLowerCase();
-      body.nicknameUsuario = body.nicknameUsuario?.trim();
+      body.nicknameUsuario = body.nicknameUsuario?.trim() ?? null;
 
-      // ✅ crea instancia de la clase Usuario
       const entity = this.repo.create({
+        codRol: body.codRol, // ← requerido por tu PK/DDL
         nombreUsuario: body.nombreUsuario!,
         apellidoUsuario: body.apellidoUsuario!,
         cedulaUsuario: body.cedulaUsuario!,
-        nicknameUsuario: body.nicknameUsuario!,
+        nicknameUsuario: body.nicknameUsuario ?? null,
         correoUsuario: body.correoUsuario!,
         contrasenaUsuario: body.contrasenaUsuario!,
         refreshTokenHash: body.refreshTokenHash ?? null,
         tokenVersion: body.tokenVersion ?? 0,
-        activo: body.activo ?? true,
+        codCargoUsuario: body.codCargoUsuario ?? null, // opcional
       });
 
       const saved = await this.repo.save(entity);
       const { contrasenaUsuario, refreshTokenHash, ...safe } = saved as any;
       return safe;
     } catch (e: any) {
+      // Duplicado (correo único) → 409
       if (e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062) {
-        throw new ConflictException('Correo / Cédula / Nickname ya registrado');
+        throw new ConflictException('Correo ya registrado (duplicado)');
+      }
+      // FK inválida (rol o cargo no existen) → 400
+      if (e?.code === 'ER_NO_REFERENCED_ROW_2' || e?.errno === 1452) {
+        throw new HttpException('Rol/Cargo inválido (violación de FK)', HttpStatus.BAD_REQUEST);
       }
       if (e instanceof HttpException) throw e;
       throw new HttpException('Falla al registrar', HttpStatus.BAD_REQUEST);
@@ -93,27 +99,24 @@ export class UsuarioService {
     if (!obj.codUsuario) {
       throw new HttpException('codUsuario es requerido', HttpStatus.BAD_REQUEST);
     }
-
     const current = await this.repo.findOne({ where: { codUsuario: obj.codUsuario } });
     if (!current) throw new NotFoundException('Usuario no encontrado');
 
-    // prepara cambios (sin pisar con undefined)
+    // No intentes cambiar codRol (parte de la PK). Lo dejamos tal cual.
     const updates: Partial<Usuario> = {
       nombreUsuario: obj.nombreUsuario ?? current.nombreUsuario,
       apellidoUsuario: obj.apellidoUsuario ?? current.apellidoUsuario,
       cedulaUsuario: obj.cedulaUsuario ?? current.cedulaUsuario,
-      nicknameUsuario: obj.nicknameUsuario ?? current.nicknameUsuario,
-      correoUsuario: obj.correoUsuario
-        ? obj.correoUsuario.trim().toLowerCase()
-        : current.correoUsuario,
+      nicknameUsuario:
+        obj.nicknameUsuario !== undefined ? obj.nicknameUsuario?.trim() ?? null : current.nicknameUsuario,
+      correoUsuario: obj.correoUsuario ? obj.correoUsuario.trim().toLowerCase() : current.correoUsuario,
       contrasenaUsuario: obj.contrasenaUsuario ?? current.contrasenaUsuario,
       refreshTokenHash: obj.refreshTokenHash ?? current.refreshTokenHash,
       tokenVersion: obj.tokenVersion ?? current.tokenVersion,
-      activo: obj.activo ?? current.activo,
-      // creadoEn/actualizadoEn los maneja la DB; no hace falta setearlos
+      codCargoUsuario: obj.codCargoUsuario ?? current.codCargoUsuario,
+      codRol: current.codRol, // ← mantenemos
     };
 
-    // ✅ MERGE sobre una instancia existente (conserva métodos de clase)
     const merged = this.repo.merge(current, updates);
 
     try {
@@ -122,7 +125,10 @@ export class UsuarioService {
       return safe;
     } catch (e: any) {
       if (e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062) {
-        throw new ConflictException('Correo / Cédula / Nickname ya registrado');
+        throw new ConflictException('Correo ya registrado (duplicado)');
+      }
+      if (e?.code === 'ER_NO_REFERENCED_ROW_2' || e?.errno === 1452) {
+        throw new HttpException('Rol/Cargo inválido (violación de FK)', HttpStatus.BAD_REQUEST);
       }
       throw new HttpException('No se actualiza', HttpStatus.BAD_REQUEST);
     }
