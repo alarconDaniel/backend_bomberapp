@@ -20,6 +20,7 @@ import { PerfilModule } from './modules/public/perfil/perfil.module';
 import { TrofeoModule } from './modules/public/trofeo/trofeo.module';
 import { RankingModule } from './modules/public/ranking/ranking.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ArchivoModule } from './modules/public/archivo/archivo.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     PerfilModule,
     TrofeoModule,
     RankingModule,
+    ArchivoModule,
     ScheduleModule.forRoot(), // 👈 habilita cron jobs
   ],
   controllers: [AppController],

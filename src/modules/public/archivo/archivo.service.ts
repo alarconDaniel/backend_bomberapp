@@ -1,19 +1,18 @@
-// src/modules/public/archivo/archivo.service.ts
 import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';        // 👈 DataSource (no InjectRepository)
 
-import { Archivo } from '../../../models/archivo/archivo';
-import { Usuario } from '../../../models/usuario/usuario';
+import { Archivo } from 'src/models/archivo/archivo';
+import { Usuario } from 'src/models/usuario/usuario';
 
 import type { Express } from 'express';
 import { google, drive_v3 } from 'googleapis';
 import * as mime from 'mime-types';
+import { Readable } from 'stream';
 
 const TIPOS_PERMITIDOS = new Set<string>([
   'application/pdf',
@@ -96,28 +95,16 @@ async function ensureSubfolder(
   return created.data.id;
 }
 
-/** Convierte un file de Drive a la forma común usada en el front */
-function mapDriveFileToRow(f: drive_v3.Schema$File) {
-  return {
-    codArchivo: undefined,
-    nombreOriginal: f.name || 'archivo',
-    path: f.id!, // usamos fileId como "path"
-    contentType: f.mimeType || 'application/octet-stream',
-    sizeBytes: Number(f.size || 0),
-    fechaSubida: f.createdTime || new Date().toISOString(),
-    area: null,
-    codUsuario: undefined,
-  };
-}
-
 @Injectable()
 export class ArchivoService {
-  constructor(
-    @InjectRepository(Archivo) private readonly archivoRepo: Repository<Archivo>,
-    @InjectRepository(Usuario) private readonly usuarioRepo: Repository<Usuario>,
-  ) {}
+  private readonly archivoRepo: Repository<Archivo>;
+  private readonly usuarioRepo: Repository<Usuario>;
 
-  /** Verifica que el usuario exista (si se envía codUsuario) */
+  constructor(private readonly ds: DataSource) {        // 👈 inyecta tu DataSource
+    this.archivoRepo = ds.getRepository(Archivo);       // 👈 repos manuales
+    this.usuarioRepo = ds.getRepository(Usuario);
+  }
+
   private async asegurarUsuario(codUsuario?: number) {
     if (!codUsuario) return null;
     const usuario = await this.usuarioRepo.findOne({ where: { codUsuario } });
@@ -125,7 +112,6 @@ export class ArchivoService {
     return usuario;
   }
 
-  /** Sube vía backend (multipart) a Google Drive y guarda metadatos en BD */
   async subirDesdeBackend(
     archivo: Express.Multer.File,
     codUsuario: number,
@@ -136,7 +122,6 @@ export class ArchivoService {
       throw new BadRequestException('Tipo de archivo no permitido');
     }
 
-    // valida usuario (aunque en BD guardamos solo el cod_usuario)
     await this.asegurarUsuario(codUsuario);
 
     const drive = getDrive();
@@ -146,12 +131,11 @@ export class ArchivoService {
     const nombre =
       archivo.originalname || `archivo.${mime.extension(archivo.mimetype) || 'bin'}`;
 
-    // Subir a Drive
     const res = await drive.files.create({
       requestBody: { name: nombre, parents: [parentId] },
       media: {
         mimeType: archivo.mimetype || 'application/octet-stream',
-        body: archivo.buffer,
+        body: Readable.from(archivo.buffer),
       },
       fields: 'id, name, mimeType, size, createdTime, webViewLink, webContentLink',
     });
@@ -159,26 +143,22 @@ export class ArchivoService {
     const fileId = res.data.id;
     if (!fileId) throw new InternalServerErrorException('No se pudo subir a Drive');
 
-    // Permitir descarga pública (opcional)
     await this.ensurePublicReadable(fileId, drive);
 
-    // Guardar metadatos en BD (ALINEADO A TU ESQUEMA)
     const entity = this.archivoRepo.create({
-      // columnas reales:
-      rutaArchivo: fileId,                                  // ruta_archivo
-      nombreOriginal: nombre,                               // nombre_original
-      tipoContenido: res.data.mimeType || archivo.mimetype, // tipo_contenido
-      tamanoBytes: String(res.data.size || archivo.size || 0), // tamano_bytes (transformer -> string)
-      codUsuario,                                           // cod_usuario
-      // area: puedes setearla si la usas
-    });
+      rutaArchivo: fileId,
+      nombreOriginal: nombre,
+      tipoContenido: res.data.mimeType || archivo.mimetype || 'application/octet-stream',
+      tamanoBytes: String(res.data.size || archivo.size || 0),
+      fechaCreacion: new Date(),
+      codUsuario,
+    } as any);
     const guardado = await this.archivoRepo.save(entity);
 
     const downloadUrl = await this.obtenerUrlDescargaFirmada(fileId, drive);
     return { archivo: guardado, downloadUrl };
   }
 
-  /** Asegura permiso de lectura pública a un archivo de Drive */
   private async ensurePublicReadable(fileId: string, drive: drive_v3.Drive) {
     try {
       await drive.permissions.create({
@@ -187,16 +167,14 @@ export class ArchivoService {
       });
     } catch (e: any) {
       if (e?.code !== 403 && e?.code !== 400) {
-        // console.warn('ensurePublicReadable', e?.message || e);
+        // noop
       }
     }
   }
 
-  /** URL de descarga para un fileId de Drive */
   async obtenerUrlDescargaFirmada(path: string, driveClient?: drive_v3.Drive) {
     const drive = driveClient || getDrive();
 
-    // asegura público
     await this.ensurePublicReadable(path, drive);
 
     const { data } = await drive.files.get({
@@ -205,12 +183,9 @@ export class ArchivoService {
     });
 
     if (data.webContentLink) return data.webContentLink;
-
-    // Fallback directo
     return `https://www.googleapis.com/drive/v3/files/${path}?alt=media`;
   }
 
-  /** URL firmada para subida directa → no aplica en Drive */
   async obtenerUrlSubidaFirmada(
     _codUsuario: number,
     _nombreArchivo: string,
@@ -218,23 +193,21 @@ export class ArchivoService {
     _carpeta = 'docs',
   ) {
     throw new BadRequestException(
-      'Subida directa no soportada con Google Drive. Usa POST /archivos/subir.',
+      'Subida directa no soportada con Google Drive. Usa POST /archivo/subir.',
     );
   }
 
-  /** No-op en Drive (no necesitamos confirmar tamaño) */
   async actualizarTamanoTrasSubida(_path: string) {
     return { updated: false, size: 0 };
   }
 
-  /** Listar desde tu BD, ordenando por fecha_creacion */
   async listar({ codUsuario, take, skip }: ListarArchivosParams) {
     if (codUsuario) await this.asegurarUsuario(codUsuario);
 
     const where = codUsuario ? { codUsuario } : {};
     const [rows, total] = await this.archivoRepo.findAndCount({
       where: where as any,
-      order: { fechaCreacion: 'DESC' }, // columna real
+      order: { fechaCreacion: 'DESC' },
       take,
       skip,
     });
@@ -242,11 +215,9 @@ export class ArchivoService {
     return { total, rows };
   }
 
-  /** Eliminar en Drive + eliminar registro en BD (validando propietario) */
   async eliminarPorPath(path: string, codUsuario: number) {
     const drive = getDrive();
 
-    // Borra en Drive (path = fileId)
     try {
       await drive.files.delete({ fileId: path });
     } catch (e: any) {
@@ -254,9 +225,8 @@ export class ArchivoService {
       throw new InternalServerErrorException('Error eliminando en Drive');
     }
 
-    // Quita de BD si pertenece al usuario
     const archivo = await this.archivoRepo.findOne({
-      where: { rutaArchivo: path, codUsuario },
+      where: { rutaArchivo: path, codUsuario } as any,
     });
     if (archivo) {
       await this.archivoRepo.remove(archivo);

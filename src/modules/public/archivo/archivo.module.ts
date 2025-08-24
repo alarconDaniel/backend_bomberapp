@@ -1,14 +1,12 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { Archivo } from '../../../models/archivo/archivo';
-import { Usuario } from '../../../models/usuario/usuario';
 import { ArchivoService } from './archivo.service';
 import { ArchivoController } from './archivo.controller';
+import { ConexionModule } from 'src/config/conexion/conexion.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Archivo, Usuario])],
-  providers: [ArchivoService],
+  imports: [ConexionModule],           
   controllers: [ArchivoController],
+  providers: [ArchivoService],          
   exports: [ArchivoService],
 })
 export class ArchivoModule {}
