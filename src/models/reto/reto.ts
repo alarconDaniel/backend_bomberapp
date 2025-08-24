@@ -1,4 +1,4 @@
-// src/db/entities/Reto.ts
+// src/models/reto/reto.ts
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity({ name: 'retos' })
@@ -16,8 +16,12 @@ export class Reto {
   tiempoEstimadoSegReto!: number;
 
   @Column({ name: 'fecha_inicio_reto', type: 'date' })
-  fechaInicioReto!: string; // o Date si prefieres, pero MySQL DATE sin hora se maneja cómodo como string 'YYYY-MM-DD'
+  fechaInicioReto!: string; // 'YYYY-MM-DD'
 
   @Column({ name: 'fecha_fin_reto', type: 'date' })
-  fechaFinReto!: string;
+  fechaFinReto!: string; // 'YYYY-MM-DD'
+
+  // Flag de plantilla automática (en retos)
+  @Column({ name: 'es_automatico_reto', type: 'tinyint', default: () => '0' })
+  esAutomaticoReto!: number; // 0/1
 }
