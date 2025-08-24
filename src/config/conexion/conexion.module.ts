@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
 import { Reto } from 'src/models/reto/reto';
 import { Usuario } from 'src/models/usuario/usuario';
+import { Archivo } from 'src/models/archivo/archivo';
 
 @Global() // 👈
 @Module({
@@ -27,7 +28,7 @@ import { Usuario } from 'src/models/usuario/usuario';
           synchronize: false,
           logging: true,
           namingStrategy: new SnakeNamingStrategy(),
-          entities: [Reto, Usuario],
+          entities: [Reto, Usuario, Archivo],
         });
 
         const maxRetries = 5;

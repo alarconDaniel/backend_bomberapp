@@ -3,10 +3,12 @@ import {
   Column,
   Entity,
   PrimaryGeneratedColumn,
-  PrimaryColumn,
   BeforeInsert,
   BeforeUpdate,
+  OneToMany,
+  Index,
 } from 'typeorm';
+import { Archivo } from '../archivo/archivo';
 
 
 @Entity({ name: 'usuarios' })
@@ -14,8 +16,9 @@ export class Usuario {
   @PrimaryGeneratedColumn({ name: 'cod_usuario', type: 'int' })
   codUsuario!: number;
 
-  // Parte de la PK compuesta (PRIMARY KEY (cod_usuario, cod_rol))
-  @PrimaryColumn({ name: 'cod_rol', type: 'int' })
+  // ❗️Antes era parte de la PK compuesta. La pasamos a columna normal.
+  // Si luego haces relación a 'roles', usa FK aquí o migra a tabla puente.
+  @Column({ name: 'cod_rol', type: 'int', nullable: false, default: 1 })
   codRol!: number;
 
   @Column({ name: 'nombre_usuario', type: 'varchar', length: 255 })
@@ -27,6 +30,7 @@ export class Usuario {
   @Column({ name: 'nickname_usuario', type: 'varchar', length: 255, nullable: true })
   nicknameUsuario!: string | null;
 
+  @Index('UQ_usuarios_correo', { unique: true })
   @Column({ name: 'correo_usuario', type: 'varchar', length: 255, unique: true })
   correoUsuario!: string;
 
@@ -44,6 +48,10 @@ export class Usuario {
 
   @Column({ name: 'token_version', type: 'int', default: 0 })
   tokenVersion!: number;
+
+  // 🔗 Relación 1:N con archivos
+  @OneToMany(() => Archivo, (archivo) => archivo.usuario)
+  archivos!: Archivo[];
 
   // ---------- Normalización ----------
   @BeforeInsert()
