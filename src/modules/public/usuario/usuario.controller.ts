@@ -1,15 +1,34 @@
 // src/modules/public/usuario/usuario.controller.ts
-import { Body, Controller, Post } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, ParseIntPipe } from '@nestjs/common';
 import { UsuarioService } from './usuario.service';
-import { CrearUsuarioDto } from './dto/crear-usuario.dto';
+import { Usuario } from 'src/models/usuario/usuario';
 
 @Controller('usuario')
 export class UsuarioController {
-  constructor(private readonly usuarios: UsuarioService) {}
+  constructor(private readonly usuarioService: UsuarioService) {}
 
-  // Protegido por el guard global (solo admins deberían llamarlo)
-  @Post()
-  async crear(@Body() dto: CrearUsuarioDto) {
-    return this.usuarios.crearUsuario(dto);
+  @Get('listar')
+  listarUsuarios() {
+    return this.usuarioService.listarUsuarios();
+  }
+
+  @Get(':codUsuario')
+  buscarUsuario(@Param('codUsuario', ParseIntPipe) codUsuario: number) {
+    return this.usuarioService.buscarUsuario(codUsuario);
+  }
+
+  @Post('crear')
+  crearUsuario(@Body() objUsuario: Usuario) {
+    return this.usuarioService.crearUsuario(objUsuario);
+  }
+
+  @Put('modificar')
+  modificarUsuario(@Body() objActualizar: Usuario) {
+    return this.usuarioService.modificarUsuario(objActualizar);
+  }
+
+  @Delete('borrar/:codUsuario')
+  borrarUsuario(@Param('codUsuario', ParseIntPipe) codUsuario: number) {
+    return this.usuarioService.borrarUsuario(codUsuario);
   }
 }

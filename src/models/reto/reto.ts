@@ -1,5 +1,4 @@
-// src/db/entities/Reto.ts
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, PrimaryGeneratedColumn } from "typeorm";
 
 @Entity({ name: 'retos' })
 export class Reto {
@@ -20,4 +19,5 @@ export class Reto {
 
   @Column({ name: 'fecha_fin_reto', type: 'date' })
   fechaFinReto!: string;
+
 }

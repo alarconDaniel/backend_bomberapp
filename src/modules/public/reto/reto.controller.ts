@@ -1,19 +1,22 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post } from '@nestjs/common';
 import { RetoService } from './reto.service';
 
 @Controller('reto')
 export class RetoController {
+  constructor(private readonly svc: RetoService) {}
 
-    constructor(private readonly retoService: RetoService){};
+  @Get('listar')
+  listar() {
+    return this.svc.listar(); // ← devuelve ARRAY directo (tu front ya lo espera)
+  }
 
-    @Get("listar")
-    public listarRetos():any{
-        return this.retoService.listarRetos();
-    }
+  @Post('crear')
+  crear(@Body() body: any) {
+    return this.svc.crear(body);
+  }
 
-    @Get("ver/:cod")
-    public verReto(@Param('cod')cod: string):any{
-        return this.retoService.verReto(Number(cod));
-    }
-
+  @Delete('borrar/:codReto')
+  borrar(@Param('codReto', ParseIntPipe) codReto: number) {
+    return this.svc.borrar(codReto);
+  }
 }
