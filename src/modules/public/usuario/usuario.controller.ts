@@ -17,7 +17,7 @@ export class UsuarioController {
   }
 
   // 👇 Conveniencia: datos del usuario autenticado (del token)
-  @Get('me')
+  @Get('listrar')
   me(@Req() req: Request) {
     const user: any = (req as any).user;     // <- viene de jwt.strategy.ts (validate)
     return this.usuarioService.buscarUsuario(Number(user?.sub));
