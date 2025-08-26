@@ -9,48 +9,58 @@ import { DataSource, Repository } from 'typeorm';
 import * as argon2 from 'argon2';
 import { Usuario } from 'src/models/usuario/usuario';
 
+// DTO que devolvemos al cliente (sin password ni refresh)
+type UsuarioListDTO = {
+  codUsuario: number;
+  codRol: number;
+  codCargoUsuario: number | null;
+  nombreUsuario: string;
+  apellidoUsuario: string;
+  cedulaUsuario: string;
+  nicknameUsuario: string | null;
+  correoUsuario: string;
+  tokenVersion: number;
+};
+
 @Injectable()
 export class UsuarioService {
   private readonly repo: Repository<Usuario>;
-
   constructor(private readonly ds: DataSource) {
     this.repo = ds.getRepository(Usuario);
   }
 
-  listarUsuarios(): Promise<Partial<Usuario>[]> {
-    return this.repo.find({
-      select: [
-        'codUsuario',
-        'codRol',
-        'nombreUsuario',
-        'apellidoUsuario',
-        'cedulaUsuario',
-        'nicknameUsuario',
-        'correoUsuario',
-        'tokenVersion',
-        'codCargoUsuario',
-      ],
-      order: { codUsuario: 'ASC' },
-    });
+  private toDTO(u: Usuario): UsuarioListDTO {
+    return {
+      codUsuario: u.codUsuario,
+      codRol: u.codRol,                         // viene de @RelationId
+      codCargoUsuario: u.codCargoUsuario ?? null,
+      nombreUsuario: u.nombreUsuario,
+      apellidoUsuario: u.apellidoUsuario,
+      cedulaUsuario: u.cedulaUsuario,
+      nicknameUsuario: u.nicknameUsuario ?? null,
+      correoUsuario: u.correoUsuario,
+      tokenVersion: u.tokenVersion,
+    };
   }
 
-  async buscarUsuario(codUsuario: number): Promise<Partial<Usuario>> {
+  async listarUsuarios(): Promise<UsuarioListDTO[]> {
+    const rows = await this.repo.find({
+      // No uses select con @RelationId; carga plano y mapea
+      loadEagerRelations: false, // ignora eager:true en la entidad
+      relations: {},             // no cargues relaciones
+      order: { codUsuario: 'ASC' },
+    });
+    return rows.map(this.toDTO);
+  }
+
+  async buscarUsuario(codUsuario: number): Promise<UsuarioListDTO> {
     const u = await this.repo.findOne({
       where: { codUsuario },
-      select: [
-        'codUsuario',
-        'codRol',
-        'nombreUsuario',
-        'apellidoUsuario',
-        'cedulaUsuario',
-        'nicknameUsuario',
-        'correoUsuario',
-        'tokenVersion',
-        'codCargoUsuario',
-      ],
+      loadEagerRelations: false,
+      relations: {},
     });
     if (!u) throw new NotFoundException('Usuario no encontrado');
-    return u;
+    return this.toDTO(u);
   }
 
   // Auxiliares
@@ -62,7 +72,7 @@ export class UsuarioService {
     return this.repo.findOne({ where: { correoUsuario: correo.toLowerCase() } });
   }
 
-  async crearUsuario(body: Partial<Usuario>): Promise<Partial<Usuario>> {
+  async crearUsuario(body: Partial<Usuario>): Promise<UsuarioListDTO> {
     try {
       if (!body.codRol) throw new HttpException('codRol es requerido', HttpStatus.BAD_REQUEST);
       if (!body.contrasenaUsuario?.trim())
@@ -71,8 +81,11 @@ export class UsuarioService {
       const correo = body.correoUsuario?.trim().toLowerCase();
       if (!correo) throw new HttpException('correoUsuario es requerido', HttpStatus.BAD_REQUEST);
 
-      const ya = await this.repo.findOne({ where: { correoUsuario: correo }, select: ['codUsuario'] });
+      const ya = await this.repo.findOne({ where: { correoUsuario: correo }, select: ['codUsuario'] as any });
       if (ya) throw new ConflictException('Correo ya registrado (duplicado)');
+
+      // si quieres hash real:
+      // const passHash = await argon2.hash(body.contrasenaUsuario!);
 
       const entity = this.repo.create({
         nombreUsuario: body.nombreUsuario!,
@@ -80,19 +93,20 @@ export class UsuarioService {
         cedulaUsuario: body.cedulaUsuario!,
         nicknameUsuario: body.nicknameUsuario?.trim() ?? null,
         correoUsuario: correo,
-        contrasenaUsuario: body.contrasenaUsuario!, // (si quieres, hashea aquí)
+        contrasenaUsuario: body.contrasenaUsuario!, // o passHash
         refreshTokenHash: body.refreshTokenHash ?? null,
-        tokenVersion: body.tokenVersion ?? 0,
+        tokenVersion: (body as any).tokenVersion ?? 0,
+
+        // ✅ relaciones: así se guarda la FK (JoinColumn)
         rol: { codRol: Number(body.codRol) } as any,
         cargo:
-          body.codCargoUsuario != null
-            ? ({ codCargoUsuario: Number(body.codCargoUsuario) } as any)
+          (body as any).codCargoUsuario != null
+            ? ({ codCargoUsuario: Number((body as any).codCargoUsuario) } as any)
             : null,
       });
 
       const saved = await this.repo.save(entity);
-      const { contrasenaUsuario, refreshTokenHash, ...safe } = saved as any;
-      return safe;
+      return this.toDTO(saved);
     } catch (e: any) {
       if (e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062)
         throw new ConflictException('Correo ya registrado (duplicado)');
@@ -103,18 +117,22 @@ export class UsuarioService {
     }
   }
 
-  async modificarUsuario(obj: Partial<Usuario>): Promise<Partial<Usuario>> {
+  async modificarUsuario(obj: Partial<Usuario>): Promise<UsuarioListDTO> {
     if (!obj.codUsuario)
       throw new HttpException('codUsuario es requerido', HttpStatus.BAD_REQUEST);
 
-    const current = await this.repo.findOne({ where: { codUsuario: obj.codUsuario } });
+    const current = await this.repo.findOne({
+      where: { codUsuario: obj.codUsuario },
+      loadEagerRelations: false,
+      relations: {},
+    });
     if (!current) throw new NotFoundException('Usuario no encontrado');
 
     const nextCorreo = obj.correoUsuario ? obj.correoUsuario.trim().toLowerCase() : undefined;
     if (nextCorreo && nextCorreo !== current.correoUsuario) {
       const yaExiste = await this.repo.findOne({
         where: { correoUsuario: nextCorreo },
-        select: ['codUsuario'],
+        select: ['codUsuario'] as any,
       });
       if (yaExiste && yaExiste.codUsuario !== current.codUsuario)
         throw new ConflictException('Correo ya registrado (duplicado)');
@@ -129,13 +147,17 @@ export class UsuarioService {
       correoUsuario: nextCorreo ?? current.correoUsuario,
       contrasenaUsuario: obj.contrasenaUsuario ?? current.contrasenaUsuario,
       refreshTokenHash: obj.refreshTokenHash ?? current.refreshTokenHash,
-      tokenVersion: obj.tokenVersion ?? current.tokenVersion,
-      ...(obj.codRol ? { rol: { codRol: Number(obj.codRol) } as any } : {}),
-      ...(obj.codCargoUsuario !== undefined
+      tokenVersion: (obj as any).tokenVersion ?? current.tokenVersion,
+
+      // ✅ cambios en relaciones
+      ...(obj.codRol
+        ? { rol: { codRol: Number(obj.codRol) } as any }
+        : {}),
+      ...((obj as any).codCargoUsuario !== undefined
         ? {
             cargo:
-              obj.codCargoUsuario != null
-                ? ({ codCargoUsuario: Number(obj.codCargoUsuario) } as any)
+              (obj as any).codCargoUsuario != null
+                ? ({ codCargoUsuario: Number((obj as any).codCargoUsuario) } as any)
                 : null,
           }
         : {}),
@@ -145,8 +167,7 @@ export class UsuarioService {
 
     try {
       const saved = await this.repo.save(merged);
-      const { contrasenaUsuario, refreshTokenHash, ...safe } = saved as any;
-      return safe;
+      return this.toDTO(saved);
     } catch (e: any) {
       if (e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062)
         throw new ConflictException('Correo ya registrado (duplicado)');
@@ -162,7 +183,7 @@ export class UsuarioService {
     return { ok: true };
   }
 
-  // ---- usados por auth/perfil (sin cambios) ----
+  // ---- usados por auth/perfil ----
   async setRefreshTokenHash(codUsuario: number, hash: string) {
     await this.repo.update({ codUsuario }, { refreshTokenHash: hash });
   }

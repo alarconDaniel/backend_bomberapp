@@ -1,13 +1,11 @@
-import {
-  Controller, Get, Post, Put, Delete, Param, Body, ParseIntPipe, UseGuards, Req
-} from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, ParseIntPipe, UseGuards, Req } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
 import { UsuarioService } from './usuario.service';
 import { Usuario } from 'src/models/usuario/usuario';
 
-@UseGuards(AuthGuard('jwt'))                 // 👈 protege TODO con JWT
-@Controller('usuario')                       // → /api/usuario/*
+@UseGuards(AuthGuard('jwt'))
+@Controller('usuario') // con globalPrefix('api') => /api/usuario/*
 export class UsuarioController {
   constructor(private readonly usuarioService: UsuarioService) {}
 
@@ -16,10 +14,9 @@ export class UsuarioController {
     return this.usuarioService.listarUsuarios();
   }
 
-  // 👇 Conveniencia: datos del usuario autenticado (del token)
-  @Get('listrar')
+  @Get('me')
   me(@Req() req: Request) {
-    const user: any = (req as any).user;     // <- viene de jwt.strategy.ts (validate)
+    const user: any = (req as any).user;
     return this.usuarioService.buscarUsuario(Number(user?.sub));
   }
 
