@@ -4,11 +4,9 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { DataSource, Repository } from 'typeorm';        // 👈 DataSource (no InjectRepository)
-
+import { DataSource, Repository } from 'typeorm';
 import { Archivo } from 'src/models/archivo/archivo';
 import { Usuario } from 'src/models/usuario/usuario';
-
 import type { Express } from 'express';
 import { google, drive_v3 } from 'googleapis';
 import * as mime from 'mime-types';
@@ -100,8 +98,8 @@ export class ArchivoService {
   private readonly archivoRepo: Repository<Archivo>;
   private readonly usuarioRepo: Repository<Usuario>;
 
-  constructor(private readonly ds: DataSource) {        // 👈 inyecta tu DataSource
-    this.archivoRepo = ds.getRepository(Archivo);       // 👈 repos manuales
+  constructor(private readonly ds: DataSource) {
+    this.archivoRepo = ds.getRepository(Archivo);
     this.usuarioRepo = ds.getRepository(Usuario);
   }
 
@@ -149,12 +147,12 @@ export class ArchivoService {
       rutaArchivo: fileId,
       nombreOriginal: nombre,
       tipoContenido: res.data.mimeType || archivo.mimetype || 'application/octet-stream',
-      tamanoBytes: String(res.data.size || archivo.size || 0),
+      tamanoBytes: String(res.data.size ?? archivo.size ?? 0),
       fechaCreacion: new Date(),
       codUsuario,
     } as any);
-    const guardado = await this.archivoRepo.save(entity);
 
+    const guardado = await this.archivoRepo.save(entity);
     const downloadUrl = await this.obtenerUrlDescargaFirmada(fileId, drive);
     return { archivo: guardado, downloadUrl };
   }
@@ -167,21 +165,18 @@ export class ArchivoService {
       });
     } catch (e: any) {
       if (e?.code !== 403 && e?.code !== 400) {
-        // noop
+        // ignorar otros códigos transitorios
       }
     }
   }
 
   async obtenerUrlDescargaFirmada(path: string, driveClient?: drive_v3.Drive) {
     const drive = driveClient || getDrive();
-
     await this.ensurePublicReadable(path, drive);
-
     const { data } = await drive.files.get({
       fileId: path,
       fields: 'id, webContentLink',
     });
-
     if (data.webContentLink) return data.webContentLink;
     return `https://www.googleapis.com/drive/v3/files/${path}?alt=media`;
   }
@@ -193,7 +188,7 @@ export class ArchivoService {
     _carpeta = 'docs',
   ) {
     throw new BadRequestException(
-      'Subida directa no soportada con Google Drive. Usa POST /archivo/subir.',
+      'Subida directa no soportada con Google Drive. Usa POST /archivos/subir.',
     );
   }
 
@@ -228,9 +223,7 @@ export class ArchivoService {
     const archivo = await this.archivoRepo.findOne({
       where: { rutaArchivo: path, codUsuario } as any,
     });
-    if (archivo) {
-      await this.archivoRepo.remove(archivo);
-    }
+    if (archivo) await this.archivoRepo.remove(archivo);
 
     return { deleted: true };
   }
