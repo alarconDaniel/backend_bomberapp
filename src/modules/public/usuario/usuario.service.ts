@@ -1,4 +1,3 @@
-// src/modules/public/usuario/usuario.service.ts
 import {
   ConflictException,
   HttpException,
@@ -8,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import * as argon2 from 'argon2';
-import { Usuario } from 'src/models/usuario/usuario'; 
+import { Usuario } from 'src/models/usuario/usuario';
 
 @Injectable()
 export class UsuarioService {
@@ -18,20 +17,18 @@ export class UsuarioService {
     this.repo = ds.getRepository(Usuario);
   }
 
-  // ========== Lecturas básicas ==========
-
   listarUsuarios(): Promise<Partial<Usuario>[]> {
     return this.repo.find({
       select: [
         'codUsuario',
-        'codRol',             // RelationId disponible en la entidad
+        'codRol',
         'nombreUsuario',
         'apellidoUsuario',
         'cedulaUsuario',
         'nicknameUsuario',
         'correoUsuario',
         'tokenVersion',
-        'codCargoUsuario',    // RelationId disponible en la entidad
+        'codCargoUsuario',
       ],
       order: { codUsuario: 'ASC' },
     });
@@ -56,7 +53,7 @@ export class UsuarioService {
     return u;
   }
 
-  // Auxiliares usados por otros módulos/guards
+  // Auxiliares
   async findById(id: number) {
     return this.repo.findOne({ where: { codUsuario: id } });
   }
@@ -65,21 +62,15 @@ export class UsuarioService {
     return this.repo.findOne({ where: { correoUsuario: correo.toLowerCase() } });
   }
 
-  // ========== Crear / Modificar / Borrar ==========
-
   async crearUsuario(body: Partial<Usuario>): Promise<Partial<Usuario>> {
     try {
-      if (!body.codRol) {
-        throw new HttpException('codRol es requerido', HttpStatus.BAD_REQUEST);
-      }
-      if (!body.contrasenaUsuario?.trim()) {
+      if (!body.codRol) throw new HttpException('codRol es requerido', HttpStatus.BAD_REQUEST);
+      if (!body.contrasenaUsuario?.trim())
         throw new HttpException('contrasenaUsuario es requerida', HttpStatus.BAD_REQUEST);
-      }
 
       const correo = body.correoUsuario?.trim().toLowerCase();
       if (!correo) throw new HttpException('correoUsuario es requerido', HttpStatus.BAD_REQUEST);
 
-      // Comprobar duplicado de correo
       const ya = await this.repo.findOne({ where: { correoUsuario: correo }, select: ['codUsuario'] });
       if (ya) throw new ConflictException('Correo ya registrado (duplicado)');
 
@@ -89,11 +80,9 @@ export class UsuarioService {
         cedulaUsuario: body.cedulaUsuario!,
         nicknameUsuario: body.nicknameUsuario?.trim() ?? null,
         correoUsuario: correo,
-        contrasenaUsuario: body.contrasenaUsuario!, // si quieres, hashea aquí
+        contrasenaUsuario: body.contrasenaUsuario!, // (si quieres, hashea aquí)
         refreshTokenHash: body.refreshTokenHash ?? null,
         tokenVersion: body.tokenVersion ?? 0,
-
-        // 👇 relaciones por objeto (usa los IDs que llegan en body)
         rol: { codRol: Number(body.codRol) } as any,
         cargo:
           body.codCargoUsuario != null
@@ -105,21 +94,18 @@ export class UsuarioService {
       const { contrasenaUsuario, refreshTokenHash, ...safe } = saved as any;
       return safe;
     } catch (e: any) {
-      if (e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062) {
+      if (e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062)
         throw new ConflictException('Correo ya registrado (duplicado)');
-      }
-      if (e?.code === 'ER_NO_REFERENCED_ROW_2' || e?.errno === 1452) {
+      if (e?.code === 'ER_NO_REFERENCED_ROW_2' || e?.errno === 1452)
         throw new HttpException('Rol/Cargo inválido (violación de FK)', HttpStatus.BAD_REQUEST);
-      }
       if (e instanceof HttpException) throw e;
       throw new HttpException('Falla al registrar', HttpStatus.BAD_REQUEST);
     }
   }
 
   async modificarUsuario(obj: Partial<Usuario>): Promise<Partial<Usuario>> {
-    if (!obj.codUsuario) {
+    if (!obj.codUsuario)
       throw new HttpException('codUsuario es requerido', HttpStatus.BAD_REQUEST);
-    }
 
     const current = await this.repo.findOne({ where: { codUsuario: obj.codUsuario } });
     if (!current) throw new NotFoundException('Usuario no encontrado');
@@ -130,12 +116,10 @@ export class UsuarioService {
         where: { correoUsuario: nextCorreo },
         select: ['codUsuario'],
       });
-      if (yaExiste && yaExiste.codUsuario !== current.codUsuario) {
+      if (yaExiste && yaExiste.codUsuario !== current.codUsuario)
         throw new ConflictException('Correo ya registrado (duplicado)');
-      }
     }
 
-    // Build de updates (respetando nullables)
     const updates: Partial<Usuario> = {
       nombreUsuario: obj.nombreUsuario ?? current.nombreUsuario,
       apellidoUsuario: obj.apellidoUsuario ?? current.apellidoUsuario,
@@ -146,10 +130,7 @@ export class UsuarioService {
       contrasenaUsuario: obj.contrasenaUsuario ?? current.contrasenaUsuario,
       refreshTokenHash: obj.refreshTokenHash ?? current.refreshTokenHash,
       tokenVersion: obj.tokenVersion ?? current.tokenVersion,
-      // relaciones (si envían nuevos ids)
-      ...(obj.codRol
-        ? { rol: { codRol: Number(obj.codRol) } as any }
-        : {}),
+      ...(obj.codRol ? { rol: { codRol: Number(obj.codRol) } as any } : {}),
       ...(obj.codCargoUsuario !== undefined
         ? {
             cargo:
@@ -167,12 +148,10 @@ export class UsuarioService {
       const { contrasenaUsuario, refreshTokenHash, ...safe } = saved as any;
       return safe;
     } catch (e: any) {
-      if (e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062) {
+      if (e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062)
         throw new ConflictException('Correo ya registrado (duplicado)');
-      }
-      if (e?.code === 'ER_NO_REFERENCED_ROW_2' || e?.errno === 1452) {
+      if (e?.code === 'ER_NO_REFERENCED_ROW_2' || e?.errno === 1452)
         throw new HttpException('Rol/Cargo inválido (violación de FK)', HttpStatus.BAD_REQUEST);
-      }
       throw new HttpException('No se actualiza', HttpStatus.BAD_REQUEST);
     }
   }
@@ -183,8 +162,7 @@ export class UsuarioService {
     return { ok: true };
   }
 
-  // ========== Métodos usados por Auth y Perfil ==========
-
+  // ---- usados por auth/perfil (sin cambios) ----
   async setRefreshTokenHash(codUsuario: number, hash: string) {
     await this.repo.update({ codUsuario }, { refreshTokenHash: hash });
   }
