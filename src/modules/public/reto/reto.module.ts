@@ -4,7 +4,7 @@ import { RetoService } from './reto.service';
 import { ConexionModule } from 'src/config/conexion/conexion.module'; // solo si NO @Global
 
 @Module({
-  imports: [ConexionModule], // ← solo si NO marcaste @Global
+  imports: [ConexionModule], 
   controllers: [RetoController],
   providers: [RetoService],
 })
