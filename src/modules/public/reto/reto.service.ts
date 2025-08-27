@@ -1,5 +1,5 @@
 // src/modules/public/reto/reto.service.ts
-import { Injectable, NotFoundException, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, NotFoundException, HttpException, HttpStatus, BadRequestException } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { Reto } from 'src/models/reto/reto';
 
@@ -8,7 +8,6 @@ type RetoDTO = {
   nombreReto: string;
   descripcionReto: string | null;
   tiempoEstimadoSegReto: number | null;
-  // ⬇️ ahora como string (o null) para coincidir con la entidad
   fechaInicioReto: string | null;
   fechaFinReto: string | null;
 };
@@ -20,17 +19,16 @@ export class RetoService {
     this.repo = this.ds.getRepository(Reto);
   }
 
-  private toDTO(r: Partial<Reto>): RetoDTO {
-    return {
-      codReto: r.codReto!,
-      nombreReto: r.nombreReto!,
-      descripcionReto: (r as any).descripcionReto ?? null,
-      tiempoEstimadoSegReto: (r as any).tiempoEstimadoSegReto ?? null,
-      fechaInicioReto: (r as any).fechaInicioReto ?? null,
-      fechaFinReto: (r as any).fechaFinReto ?? null,
-    };
-  }
+  private toDTO = (r: Partial<Reto>): RetoDTO => ({
+    codReto: r.codReto!,
+    nombreReto: r.nombreReto!,
+    descripcionReto: (r as any).descripcionReto ?? null,
+    tiempoEstimadoSegReto: (r as any).tiempoEstimadoSegReto ?? null,
+    fechaInicioReto: (r as any).fechaInicioReto ?? null,
+    fechaFinReto: (r as any).fechaFinReto ?? null,
+  });
 
+  // ---------- LISTAR ----------
   public async listar(): Promise<RetoDTO[]> {
     const rows = await this.repo.find({
       loadEagerRelations: false,
@@ -48,6 +46,7 @@ export class RetoService {
     return rows.map(this.toDTO);
   }
 
+  // ---------- DETALLE ----------
   public async detalle(codReto: number): Promise<RetoDTO> {
     const reto = await this.repo.findOne({
       where: { codReto },
@@ -66,6 +65,7 @@ export class RetoService {
     return this.toDTO(reto);
   }
 
+  // ---------- CREAR ----------
   public async crear(payload: Partial<Reto>): Promise<RetoDTO> {
     try {
       const clean = this.cleanPayload(payload);
@@ -110,10 +110,59 @@ export class RetoService {
     }
   }
 
+  // ---------- BORRAR ----------
   public async borrar(codReto: number): Promise<{ ok: true }> {
     const r = await this.repo.delete({ codReto });
     if (!r.affected) throw new NotFoundException('Reto no encontrado');
     return { ok: true };
+  }
+
+  // ---------- MODIFICAR ----------
+  public async modificar(codReto: number, payload: Partial<Reto>): Promise<RetoDTO> {
+    const current = await this.repo.findOne({
+      where: { codReto },
+      loadEagerRelations: false,
+      relations: {},
+      select: {
+        codReto: true,
+        nombreReto: true,
+        descripcionReto: true,
+        tiempoEstimadoSegReto: true,
+        fechaInicioReto: true,
+        fechaFinReto: true,
+      },
+    });
+    if (!current) throw new NotFoundException('Reto no encontrado');
+
+    const clean = this.cleanPayload(payload);
+
+    if (clean.nombreReto !== undefined && !String(clean.nombreReto).trim()) {
+      throw new BadRequestException('nombreReto no puede ser vacío');
+    }
+    if ((clean.fechaInicioReto ?? current.fechaInicioReto) && (clean.fechaFinReto ?? current.fechaFinReto)) {
+      const ini = new Date(clean.fechaInicioReto ?? current.fechaInicioReto!);
+      const fin = new Date(clean.fechaFinReto ?? current.fechaFinReto!);
+      if (fin < ini) throw new BadRequestException('fechaFinReto no puede ser anterior a fechaInicioReto');
+    }
+    if (clean.tiempoEstimadoSegReto != null && clean.tiempoEstimadoSegReto < 0) {
+      throw new BadRequestException('tiempoEstimadoSegReto debe ser >= 0');
+    }
+
+    await this.repo.update({ codReto }, { ...current, ...clean, codReto });
+    const fresh = await this.repo.findOne({
+      where: { codReto },
+      loadEagerRelations: false,
+      relations: {},
+      select: {
+        codReto: true,
+        nombreReto: true,
+        descripcionReto: true,
+        tiempoEstimadoSegReto: true,
+        fechaInicioReto: true,
+        fechaFinReto: true,
+      },
+    });
+    return this.toDTO(fresh!);
   }
 
   // ------- helpers -------
@@ -126,7 +175,6 @@ export class RetoService {
       p?.tiempoEstimadoSegReto ?? p?.tiempo_estimado_seg_reto,
     );
 
-    // ⬇️ convertimos a string MySQL DATETIME o null
     const fechaInicioReto: string | null = toMySqlDateTimeOrNull(
       p?.fechaInicioReto ?? p?.fecha_inicio_reto,
     );
@@ -150,7 +198,6 @@ function toIntOrNull(v: any): number | null {
   return Number.isFinite(n) ? Math.trunc(n) : null;
 }
 
-// Devuelve 'YYYY-MM-DD HH:mm:ss' o null
 function toMySqlDateTimeOrNull(v: any): string | null {
   if (!v) return null;
   const d = new Date(v);

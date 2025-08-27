@@ -1,8 +1,12 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, ParseIntPipe, UseGuards, Req } from '@nestjs/common';
+import {
+  Controller, Get, Post, Put, Delete,
+  Param, Body, ParseIntPipe, UseGuards, Req
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
 import { UsuarioService } from './usuario.service';
-import { Usuario } from 'src/models/usuario/usuario';
+import { CrearUsuarioDto } from './dto/crear-usuario.dto';
+import { ModificarUsuarioDto } from './dto/modificar-usuario.dto';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('usuario') // con globalPrefix('api') => /api/usuario/*
@@ -26,13 +30,14 @@ export class UsuarioController {
   }
 
   @Post('crear')
-  crearUsuario(@Body() objUsuario: Usuario) {
-    return this.usuarioService.crearUsuario(objUsuario);
+  crearUsuario(@Body() dto: CrearUsuarioDto) {
+    // ⚠️ Al usar DTO + ValidationPipe(whitelist:true), ya no se “pierde” codRol
+    return this.usuarioService.crearUsuario(dto);
   }
 
   @Put('modificar')
-  modificarUsuario(@Body() objActualizar: Usuario) {
-    return this.usuarioService.modificarUsuario(objActualizar);
+  modificarUsuario(@Body() dto: ModificarUsuarioDto) {
+    return this.usuarioService.modificarUsuario(dto);
   }
 
   @Delete('borrar/:codUsuario')
