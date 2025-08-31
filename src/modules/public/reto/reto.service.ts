@@ -19,6 +19,9 @@ export class RetoService {
     this.repo = this.ds.getRepository(Reto);
   }
 
+      public async verReto(cod: number): Promise<any>{
+        return await this.repo.findOne({where: {codReto: cod}})}
+
   private toDTO = (r: Partial<Reto>): RetoDTO => ({
     codReto: r.codReto!,
     nombreReto: r.nombreReto!,

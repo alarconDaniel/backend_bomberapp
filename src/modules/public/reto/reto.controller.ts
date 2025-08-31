@@ -16,6 +16,10 @@ export class RetoController {
     return this.svc.listar();
   }
 
+      @Get("ver/:cod")
+    public verReto(@Param('cod')cod: string):any{
+        return this.svc.verReto(Number(cod));}
+
   @Get(':codReto')
   detalle(@Param('codReto', ParseIntPipe) codReto: number) {
     return this.svc.detalle(codReto);

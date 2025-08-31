@@ -5,6 +5,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { json, urlencoded } from 'express';
 import { writeFileSync, existsSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 function ensureGcpCreds() {
   const b64 = process.env.GCP_SA_KEY_B64;
@@ -20,21 +21,6 @@ ensureGcpCreds();
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Prefijo global
-  const GLOBAL_PREFIX = 'api';
-  app.setGlobalPrefix(GLOBAL_PREFIX);
-
-  // CORS para LAN/Expo/dev
-  app.enableCors({
-    origin: (_origin, cb) => cb(null, true),
-    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
-    credentials: true,
-  });
-
-  // Parsers y límites
-  app.use(json({ limit: '15mb' }));
-  app.use(urlencoded({ extended: true, limit: '15mb' }));
-
   // Validaciones globales
   app.useGlobalPipes(
     new ValidationPipe({
@@ -43,33 +29,18 @@ async function bootstrap() {
       transformOptions: { enableImplicitConversion: true },
     }),
   );
+  
+  app.useGlobalFilters(new HttpExceptionFilter());
 
-  // Health simple sin controller
-  const http = app.getHttpAdapter().getInstance();
-  http.get(`/${GLOBAL_PREFIX}/health`, (_req: any, res: any) =>
-    res.json({ ok: true, ts: new Date().toISOString() })
-  );
 
-  // Dump de rutas registradas (sin getGlobalPrefix)
-  if (http._router?.stack) {
-    console.log('--- RUTAS REGISTRADAS ---');
-    http._router.stack
-      .filter((r: any) => r.route)
-      .forEach((r: any) => {
-        const path = r.route.path;
-        const methods = Object.keys(r.route.methods)
-          .filter((m) => r.route.methods[m])
-          .join(',')
-          .toUpperCase();
-        console.log(`${methods.padEnd(7)} /${GLOBAL_PREFIX}${path}`);
-      });
-    console.log('-------------------------');
-  }
+  const puerto = Number(process.env.PUERTO_SERVIDOR)
+  await app.listen(puerto, () => {
+    console.log("Servidor funcionando en el puerto: " + puerto)
+  });
 
-  const puerto = Number(process.env.PUERTO_SERVIDOR) || 3550;
-  await app.listen(puerto, '0.0.0.0');
+  // Parsers y límites
+  app.use(json({ limit: '15mb' }));
+  app.use(urlencoded({ extended: true, limit: '15mb' }));
 
-  console.log(`🚀 API http://localhost:${puerto}`);
-  console.log(`🩺 Health: http://localhost:${puerto}/${GLOBAL_PREFIX}/health`);
 }
 bootstrap();
