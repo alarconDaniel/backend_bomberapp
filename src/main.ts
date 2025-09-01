@@ -50,9 +50,9 @@ async function bootstrap() {
   app.use(json({ limit: '15mb' }));
   app.use(urlencoded({ extended: true, limit: '15mb' }));
 
-    // Health simple sin controller
+  // Health simple sin controller
   const http = app.getHttpAdapter().getInstance();
-  http.get(`/api}/health`, (_req: any, res: any) =>
+  http.get(`/api/health`, (_req: any, res: any) =>
     res.json({ ok: true, ts: new Date().toISOString() })
   );
 
