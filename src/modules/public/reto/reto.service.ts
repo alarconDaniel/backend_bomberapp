@@ -1,7 +1,10 @@
-// src/modules/public/reto/reto.service.ts
-import { Injectable, NotFoundException, HttpException, HttpStatus, BadRequestException } from '@nestjs/common';
+// src/modules/reto/reto.service.ts  
+import { Injectable, NotFoundException, HttpException, HttpStatus, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { Reto } from 'src/models/reto/reto';
+import { UsuarioReto } from 'src/models/usuario-reto/usuario-reto';
+import * as dayjs from 'dayjs';
+const Holidays = require('date-holidays');
 
 type RetoDTO = {
   codReto: number;
@@ -11,12 +14,6 @@ type RetoDTO = {
   fechaInicioReto: string | null;
   fechaFinReto: string | null;
 };
-
-import * as dayjs from 'dayjs';
-
-const Holidays = require('date-holidays');
-
-import { UsuarioReto } from 'src/models/usuario-reto/usuario-reto';
 
 @Injectable()
 export class RetoService {
@@ -46,23 +43,22 @@ export class RetoService {
     if (!fecha.isValid()) throw new BadRequestException('Fecha inválida (YYYY-MM-DD)');
     const ymd = fecha.format('YYYY-MM-DD');
 
-    // Single-day exacto O multi-día (ventana que cubre la fecha)
-    const rows = await this.ds.query(
-      `
+    const rows = await this.ds.query(`
       SELECT
-        ur.cod_usuario_reto      AS codUsuarioReto,
-        ur.cod_usuario           AS codUsuario,
-        ur.cod_reto              AS codReto,
-        ur.estado                AS estado,
-        ur.fecha_objetivo        AS fechaObjetivo,
-        ur.ventana_inicio        AS ventanaInicio,
-        ur.ventana_fin           AS ventanaFin,
-        r.nombre_reto            AS nombreReto,
-        r.descripcion_reto       AS descripcionReto,
+        ur.cod_usuario_reto  AS codUsuarioReto,
+        ur.cod_usuario       AS codUsuario,
+        ur.cod_reto          AS codReto,
+        ur.estado            AS estado,
+        ur.fecha_objetivo    AS fechaObjetivo,
+        ur.ventana_inicio    AS ventanaInicio,
+        ur.ventana_fin       AS ventanaFin,
+        r.nombre_reto        AS nombreReto,
+        r.descripcion_reto   AS descripcionReto,
         r.tiempo_estimado_seg_reto AS tiempoEstimadoSegReto,
-        r.fecha_inicio_reto      AS fechaInicioReto,
-        r.fecha_fin_reto         AS fechaFinReto,
-        r.es_automatico_reto     AS esAutomaticoReto
+        r.fecha_inicio_reto  AS fechaInicioReto,
+        r.fecha_fin_reto     AS fechaFinReto,
+        r.es_automatico_reto AS esAutomaticoReto,
+        r.tipo_reto          AS tipoReto
       FROM usuarios_retos ur
       JOIN retos r ON r.cod_reto = ur.cod_reto
       WHERE ur.cod_usuario = ?
@@ -72,9 +68,7 @@ export class RetoService {
                AND ur.ventana_inicio <= ? AND ur.ventana_fin >= ?)
         )
       ORDER BY r.nombre_reto ASC
-      `,
-      [codUsuario, ymd, ymd, ymd],
-    );
+    `, [codUsuario, ymd, ymd, ymd]);
 
     return rows;
   }
@@ -91,37 +85,49 @@ export class RetoService {
    * como single-day con fecha_objetivo = hoy. Idempotente con UNIQUE (si lo tienes).
    */
   public async asignarAutomaticosSiLaboral(hoyYmd: string) {
+    // Bogotá fijo (sin DST)
     const hoyDate = new Date(`${hoyYmd}T00:00:00-05:00`);
     if (!this.isBusinessDay(hoyDate)) {
-      return { ok: true, asignado: 0, motivo: 'no-laboral' };
+      return { ok: true, intentadas: 0, nuevas: 0, motivo: 'no-laboral', fecha: hoyYmd };
     }
 
-    // Usuarios operarios
+    // Operarias
     const usuarios: Array<{ cod_usuario: number }> = await this.ds.query(
       'SELECT cod_usuario FROM usuarios WHERE cod_rol = 2'
     );
 
-    // Retos automáticos
+    // SOLO plantillas cuyo rango de vigencia cubre hoy
     const retosAuto: Array<{ cod_reto: number }> = await this.ds.query(
-      'SELECT cod_reto FROM retos WHERE es_automatico_reto = 1'
+      `
+    SELECT cod_reto
+    FROM retos
+    WHERE es_automatico_reto = 1
+      AND fecha_inicio_reto <= ?
+      AND fecha_fin_reto   >= ?
+    `,
+      [hoyYmd, hoyYmd]
     );
 
     if (!retosAuto.length || !usuarios.length) {
-      return { ok: true, asignado: 0, motivo: 'sin-usuarios-o-retos' };
+      return { ok: true, intentadas: 0, nuevas: 0, motivo: 'sin-usuarios-o-retos-vigentes', fecha: hoyYmd };
     }
 
+    // Idempotencia: confía en tus UNIQUEs (uq_ur_dia / uq_ur_win)
     const insertSql = `
-      INSERT IGNORE INTO usuarios_retos (cod_usuario, cod_reto, fecha_objetivo, estado)
-      VALUES (?, ?, ?, 'asignado')
-    `;
-    let count = 0;
+    INSERT IGNORE INTO usuarios_retos (cod_usuario, cod_reto, fecha_objetivo, estado)
+    VALUES (?, ?, ?, 'asignado')
+  `;
+
+    let intentadas = 0, nuevas = 0;
     for (const u of usuarios) {
       for (const r of retosAuto) {
-        await this.ds.query(insertSql, [u.cod_usuario, r.cod_reto, hoyYmd]);
-        count++;
+        intentadas++;
+        const res: any = await this.ds.query(insertSql, [u.cod_usuario, r.cod_reto, hoyYmd]);
+        // Nota: según el driver, res puede variar. En MySQL común: affectedRows=1 para insert real.
+        if (res?.affectedRows === 1) nuevas++;
       }
     }
-    return { ok: true, asignado: count };
+    return { ok: true, intentadas, nuevas, fecha: hoyYmd };
   }
 
   /**
@@ -156,6 +162,61 @@ export class RetoService {
     fechaInicioReto: (r as any).fechaInicioReto ?? null,
     fechaFinReto: (r as any).fechaFinReto ?? null,
   });
+
+  /** NUEVO: devuelve el reto con estructura completa para renderizar (quiz o form) */
+  public async verRetoFull(codReto: number) {
+    const r = await this.retoRepo.findOne({ where: { codReto } });
+    if (!r) throw new NotFoundException('Reto no encontrado');
+
+    if (r.tipoReto === 'quiz') {
+      // trae preguntas y subestructuras
+      const preguntas = await this.ds.query(`
+        SELECT p.cod_pregunta as codPregunta, p.numero_pregunta as numero,
+               p.enunciado_pregunta as enunciado, p.tipo_pregunta as tipo,
+               p.puntos_pregunta as puntos, p.tiempo_max_pregunta as tiempoMax
+        FROM preguntas p WHERE p.cod_reto = ? ORDER BY p.numero_pregunta ASC
+      `, [codReto]);
+
+      // para cada tipo adjunta extras
+      for (const q of preguntas) {
+        if (q.tipo === 'abcd') {
+          q.opciones = await this.ds.query(
+            `SELECT cod_opcion as codOpcion, texto_opcion as texto, validez_opcion as correcta
+               FROM opciones_abcd WHERE cod_pregunta=? ORDER BY cod_opcion ASC`,
+            [q.codPregunta]
+          );
+        }
+        if (q.tipo === 'rellenar') {
+          const [row] = await this.ds.query(
+            `SELECT respuesta_correcta as correcta FROM preguntas_rellenar WHERE cod_pregunta=?`,
+            [q.codPregunta]
+          );
+          q.correcta = row?.correcta ?? null; // podrías omitirla al cliente si no quieres filtrar trampa
+        }
+        if (q.tipo === 'emparejar') {
+          q.items = await this.ds.query(
+            `SELECT cod_item as codItem, lado, contenido FROM items_emparejamiento WHERE cod_pregunta=? ORDER BY cod_item ASC`,
+            [q.codPregunta]
+          );
+          q.parejas = await this.ds.query(
+            `SELECT cod_item_A as a, cod_item_B as b FROM parejas_correctas WHERE cod_pregunta=?`,
+            [q.codPregunta]
+          );
+        }
+        if (q.tipo === 'reporte') {
+          const [row] = await this.ds.query(
+            `SELECT instrucciones_pregunta as instrucciones, tipo_archivo_permitido as tipos FROM preguntas_reporte WHERE cod_pregunta=?`,
+            [q.codPregunta]
+          );
+          q.reporte = row ?? null;
+        }
+      }
+      return { ...r, quiz: { preguntas } };
+    } else {
+      // form | checklist → usa metadata_reto.schema
+      return { ...r, form: r.metadataReto?.schema ?? null };
+    }
+  }
 
   // ---------- LISTAR ----------
   public async listar(): Promise<RetoDTO[]> {

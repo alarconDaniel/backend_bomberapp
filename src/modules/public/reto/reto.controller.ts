@@ -23,17 +23,21 @@ export class RetoController {
     return this.retoService.verReto(Number(cod));
   }
 
-  /**
+  @Get('ver/full/:cod')
+  async verRetoFull(@Param('cod') cod: string) {
+    return this.retoService.verRetoFull(Number(cod));
+  }
+
+    /**
    * Calendario por día. Ej:
    *   GET /reto/dia?fecha=2025-08-23&usuario=3
    * Si tienes auth con JWT, toma el usuario del token y omite ?usuario
    */
   @Get('dia')
-  async listarPorDia(@Query('fecha') fecha?: string, @Query('usuario') usuario?: string) {
+  async listarPorDia(@Req() req: any, @Query('fecha') fecha?: string, @Query('usuario') usuario?: string) {
     const ymd = fecha || dayjs().format('YYYY-MM-DD');
-    const uid = Number(usuario);
-    if (!uid) throw new BadRequestException('Falta ?usuario=ID');
-
+    const uid = Number(usuario ?? req?.user?.sub);
+    if (!uid) throw new BadRequestException('Falta usuario');
     const hoy = dayjs().format('YYYY-MM-DD');
     if (dayjs(ymd).isAfter(hoy)) {
       throw new BadRequestException('No puedes ver días futuros');

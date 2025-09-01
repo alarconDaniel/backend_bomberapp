@@ -16,14 +16,20 @@ export class Reto {
   tiempoEstimadoSegReto!: number;
 
   @Column({ name: 'fecha_inicio_reto', type: 'date' })
-  fechaInicioReto!: string; // 'YYYY-MM-DD'
+  fechaInicioReto!: string;
 
   @Column({ name: 'fecha_fin_reto', type: 'date' })
-  fechaFinReto!: string; // 'YYYY-MM-DD'
+  fechaFinReto!: string;
 
-  // Flag de plantilla automática (en retos)
   @Column({ name: 'es_automatico_reto', type: 'tinyint', default: () => '0' })
-  esAutomaticoReto!: number; // 0/1
+  esAutomaticoReto!: number;
 
+  @Column({ name: 'tipo_reto', type: 'enum', enum: ['quiz','form','checklist'], default: 'quiz' })
+  tipoReto!: 'quiz'|'form'|'checklist';
 
+  @Column({ name: 'metadata_reto', type: 'json', nullable: true })
+  metadataReto!: any | null;
+
+  @Column({ name: 'activo', type: 'tinyint', default: () => '1' })
+  activo!: number;
 }

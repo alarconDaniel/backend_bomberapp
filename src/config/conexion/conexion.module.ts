@@ -6,6 +6,8 @@ import { EstadisticaUsuario } from 'src/models/estadistica-usuario/estadistica-u
 import { ItemTienda } from 'src/models/item-tienda/item-tienda';
 import { ItemInventario } from 'src/models/item_inventario/item_inventario';
 import { Logro } from 'src/models/logro/logro';
+import { RespuestaFormulario } from 'src/models/respuestas/respuesta-form';
+import { RespuestaQuiz } from 'src/models/respuestas/respuesta-quiz';
 import { Reto } from 'src/models/reto/reto';
 import { Rol } from 'src/models/rol/rol';
 import { TokenReinicioContrasena } from 'src/models/token-reinicio-contraseña/token-reinicio-contraseña';
@@ -38,7 +40,7 @@ import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
                         namingStrategy: new SnakeNamingStrategy(),
                         entities: [Reto, ItemTienda, Usuario, Rol, TokenReinicioContrasena, 
                             UsuarioReto, CargoUsuario, EstadisticaUsuario, ItemInventario, 
-                            Logro, UsuarioLogro, Trofeo, AuditoriaTrofeo,Archivo], // Aqui van todas las entidades o clases
+                            Logro, UsuarioLogro, Trofeo, AuditoriaTrofeo,Archivo, RespuestaFormulario, RespuestaQuiz], // Aqui van todas las entidades o clases
                         driver: require('mysql2')
                     })
 

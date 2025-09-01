@@ -1,4 +1,4 @@
-// src/db/entities/cargo-usuario/CargoUsuario.ts
+// src/models/cargo-usuario/CargoUsuario.ts
 import { Column, Entity, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
 import { Usuario } from '../usuario/usuario';
 
