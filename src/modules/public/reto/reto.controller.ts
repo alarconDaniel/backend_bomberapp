@@ -1,38 +1,86 @@
 import {
   Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put,
   UseGuards, Req, ForbiddenException, BadRequestException,
+  Query,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
 import { RetoService } from './reto.service';
+import * as dayjs from 'dayjs';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('reto')
 export class RetoController {
-  constructor(private readonly svc: RetoService) {}
+  constructor(private readonly retoService: RetoService) {}
+
+  @Get('listar')
+  listarRetos() {
+    return this.retoService.listarRetos();
+  }
+
+  @Get('ver/:cod')
+  verReto(@Param('cod') cod: string) {
+    return this.retoService.verReto(Number(cod));
+  }
+
+  @Get('ver/full/:cod')
+  async verRetoFull(@Param('cod') cod: string) {
+    return this.retoService.verRetoFull(Number(cod));
+  }
+
+    /**
+   * Calendario por día. Ej:
+   *   GET /reto/dia?fecha=2025-08-23&usuario=3
+   * Si tienes auth con JWT, toma el usuario del token y omite ?usuario
+   */
+  @Get('dia')
+  async listarPorDia(@Req() req: any, @Query('fecha') fecha?: string, @Query('usuario') usuario?: string) {
+    const ymd = fecha || dayjs().format('YYYY-MM-DD');
+    const uid = Number(usuario ?? req?.user?.sub);
+    if (!uid) throw new BadRequestException('Falta usuario');
+    const hoy = dayjs().format('YYYY-MM-DD');
+    if (dayjs(ymd).isAfter(hoy)) {
+      throw new BadRequestException('No puedes ver días futuros');
+    }
+    return this.retoService.listarPorDia(uid, ymd);
+  }
+
+  // ==== utilidades para pruebas de cron (opcionales) ====
+  @Post('cron/asignar')
+  async cronAsignar(@Query('fecha') fecha?: string) {
+    const ymd = fecha || dayjs().format('YYYY-MM-DD');
+    return this.retoService.asignarAutomaticosSiLaboral(ymd);
+  }
+
+  @Post('cron/vencer')
+  async cronVencer(@Query('fecha') fecha?: string) {
+    const ymd = fecha || dayjs().format('YYYY-MM-DD');
+    return this.retoService.marcarVencidos(ymd);
+  }
+
 
   @Get('listar')
   listar() {
-    return this.svc.listar();
+    return this.retoService.listar();
   }
 
   @Get(':codReto')
   detalle(@Param('codReto', ParseIntPipe) codReto: number) {
-    return this.svc.detalle(codReto);
+    return this.retoService.detalle(codReto);
   }
 
   @Post('crear')
   crear(@Req() req: Request, @Body() body: any) {
     const u = (req as any).user;
     if (!isAdmin(u)) throw new ForbiddenException('Solo admin puede crear retos');
-    return this.svc.crear(body);
+    return this.retoService.crear(body);
   }
 
   @Delete('borrar/:codReto')
   borrar(@Req() req: Request, @Param('codReto', ParseIntPipe) codReto: number) {
     const u = (req as any).user;
     if (!isAdmin(u)) throw new ForbiddenException('Solo admin puede borrar retos');
-    return this.svc.borrar(codReto);
+    return this.retoService.borrar(codReto);
   }
 
   // 🔧 NUEVO: modificar (PUT /api/reto/modificar) con codReto en el body
@@ -45,7 +93,7 @@ export class RetoController {
     if (!Number.isFinite(codReto)) {
       throw new BadRequestException('codReto es requerido y debe ser numérico');
     }
-    return this.svc.modificar(codReto, body);
+    return this.retoService.modificar(codReto, body);
   }
 }
 

@@ -9,6 +9,8 @@ import { GoogleToken } from 'src/models/google-token/google-token';
 import { ItemTienda } from 'src/models/item-tienda/item-tienda';
 import { ItemInventario } from 'src/models/item_inventario/item_inventario';
 import { Logro } from 'src/models/logro/logro';
+import { RespuestaFormulario } from 'src/models/respuestas/respuesta-form';
+import { RespuestaQuiz } from 'src/models/respuestas/respuesta-quiz';
 import { Reto } from 'src/models/reto/reto';
 import { Rol } from 'src/models/rol/rol';
 import { TokenReinicioContrasena } from 'src/models/token-reinicio-contraseña/token-reinicio-contraseña';
@@ -34,7 +36,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
       entities: [
         Reto, ItemTienda, Usuario, Rol, TokenReinicioContrasena,
         UsuarioReto, CargoUsuario, EstadisticaUsuario, ItemInventario,
-        Logro, UsuarioLogro, Trofeo, AuditoriaTrofeo, Archivo, GoogleToken,
+        Logro, UsuarioLogro, Trofeo, AuditoriaTrofeo, Archivo, GoogleToken, RespuestaFormulario, RespuestaQuiz,
       ],
     }),
   ],

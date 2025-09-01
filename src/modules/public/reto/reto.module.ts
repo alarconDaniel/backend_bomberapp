@@ -1,11 +1,18 @@
+// src/modules/reto/reto.module.ts
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { RetoController } from './reto.controller';
 import { RetoService } from './reto.service';
-import { ConexionModule } from 'src/config/conexion/conexion.module'; // solo si NO @Global
+import { ConexionModule } from 'src/config/conexion/conexion.module';
+import { RetosCron } from './retos.cron';
 
 @Module({
-  imports: [ConexionModule], 
+  imports: [
+    ConexionModule,
+    ScheduleModule.forRoot(),
+  ],
   controllers: [RetoController],
-  providers: [RetoService],
+  providers: [RetoService, RetosCron],
 })
+
 export class RetoModule {}

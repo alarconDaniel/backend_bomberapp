@@ -12,6 +12,8 @@ import { Usuario } from 'src/models/usuario/usuario';
 // 👇 importa los DTOs
 import { CrearUsuarioDto } from 'src/modules/public/usuario/dto/crear-usuario.dto';
 import { ModificarUsuarioDto } from 'src/modules/public/usuario/dto/modificar-usuario.dto';
+import { CargoUsuario } from 'src/models/cargo_usuario/cargo-usuario';
+import { InjectRepository } from '@nestjs/typeorm';
 
 // DTO que devolvemos al cliente (sin password ni refresh)
 type UsuarioListDTO = {
@@ -28,10 +30,17 @@ type UsuarioListDTO = {
 
 @Injectable()
 export class UsuarioService {
+
+    
   private readonly repo: Repository<Usuario>;
+  private readonly cargosRepo: Repository<CargoUsuario>;
+
   constructor(private readonly ds: DataSource) {
+    this.cargosRepo = ds.getRepository(CargoUsuario)
     this.repo = ds.getRepository(Usuario);
   }
+
+
 
   private toDTO(u: Usuario): UsuarioListDTO {
     return {
@@ -73,6 +82,12 @@ export class UsuarioService {
 
   async findByCorreo(correo: string) {
     return this.repo.findOne({ where: { correoUsuario: correo.toLowerCase() } });
+  }
+
+  async getCargoNombreById(codCargo: number | null | undefined): Promise<string | null> {
+    if (!codCargo) return null;
+    const cargo = await this.cargosRepo.findOne({ where: { codCargoUsuario: codCargo } });
+    return cargo?.nombreCargo ?? null;
   }
 
   // ================== CREAR ==================
