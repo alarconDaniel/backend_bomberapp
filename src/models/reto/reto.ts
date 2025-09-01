@@ -24,4 +24,6 @@ export class Reto {
   // Flag de plantilla automática (en retos)
   @Column({ name: 'es_automatico_reto', type: 'tinyint', default: () => '0' })
   esAutomaticoReto!: number; // 0/1
+
+
 }

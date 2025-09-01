@@ -1,3 +1,4 @@
+import { Archivo } from './../../models/archivo/archivo';
 import { Module } from '@nestjs/common';
 import { AuditoriaTrofeo } from 'src/models/auditoria-trofeo/auditoria-trofeo';
 import { CargoUsuario } from 'src/models/cargo_usuario/cargo-usuario';
@@ -35,7 +36,9 @@ import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
                         synchronize: false,  // Sincroniza la base de datos con los modelos
                         logging: true,   // Muestra los logs de la base de datos
                         namingStrategy: new SnakeNamingStrategy(),
-                        entities: [Reto, ItemTienda, Usuario, Rol, TokenReinicioContrasena, UsuarioReto, CargoUsuario, EstadisticaUsuario, ItemInventario, Logro, UsuarioLogro, Trofeo, AuditoriaTrofeo], // Aqui van todas las entidades o clases
+                        entities: [Reto, ItemTienda, Usuario, Rol, TokenReinicioContrasena, 
+                            UsuarioReto, CargoUsuario, EstadisticaUsuario, ItemInventario, 
+                            Logro, UsuarioLogro, Trofeo, AuditoriaTrofeo,Archivo], // Aqui van todas las entidades o clases
                         driver: require('mysql2')
                     })
 

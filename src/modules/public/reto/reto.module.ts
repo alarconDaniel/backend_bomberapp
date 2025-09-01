@@ -14,4 +14,5 @@ import { RetosCron } from './retos.cron';
   controllers: [RetoController],
   providers: [RetoService, RetosCron],
 })
+
 export class RetoModule {}
