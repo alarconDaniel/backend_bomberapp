@@ -26,14 +26,22 @@ async function bootstrap() {
     new ValidationPipe({
       whitelist: true,
       transform: true,
+      forbidNonWhitelisted: true,
       transformOptions: { enableImplicitConversion: true },
     }),
   );
-  
+
   app.useGlobalFilters(new HttpExceptionFilter());
 
-
+  // CORS para LAN/Expo/dev
+  app.enableCors({
+    origin: (_origin, cb) => cb(null, true),
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
+    credentials: true,
+  });
+  
   const puerto = Number(process.env.PUERTO_SERVIDOR)
+
   await app.listen(puerto, () => {
     console.log("Servidor funcionando en el puerto: " + puerto)
   });
@@ -41,6 +49,15 @@ async function bootstrap() {
   // Parsers y límites
   app.use(json({ limit: '15mb' }));
   app.use(urlencoded({ extended: true, limit: '15mb' }));
+
+    // Health simple sin controller
+  const http = app.getHttpAdapter().getInstance();
+  http.get(`/api}/health`, (_req: any, res: any) =>
+    res.json({ ok: true, ts: new Date().toISOString() })
+  );
+
+  console.log(`🚀 API http://localhost:${puerto}`);
+  console.log(`🩺 Health: http://localhost:${puerto}/api/health`);
 
 }
 bootstrap();
