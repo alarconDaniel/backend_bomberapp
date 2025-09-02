@@ -35,9 +35,6 @@ export class Archivo {
   @Column({ name: 'tamano_bytes', type: 'bigint', transformer: BigIntToString })
   tamanoBytes!: string;
 
-  @Column({ name: 'area', type: 'varchar', length: 50, nullable: true })
-  area!: string | null;
-
   @Column({
     name: 'fecha_creacion',
     type: 'timestamp',
