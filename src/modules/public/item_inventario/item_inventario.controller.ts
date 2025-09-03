@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, NotFoundException, Param, ParseIntPipe, 
 import { ItemInventarioService } from './item_inventario.service';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 import { UsuarioService } from '../usuario/usuario.service';
+import { AbrirCofreDto } from './dto/abrir-cofre.dto';
 
 
 @Controller('item-inventario')
@@ -29,8 +30,13 @@ export class ItemInventarioController {
     };
   }
 
-
-
+  @Post('abrir-cofre')
+  public async abrirCofre(
+    @Body() body: AbrirCofreDto,
+    @CurrentUser('id') codUsuario: number
+  ) {
+    return this.service.abrirCofre(codUsuario, body.codItemInventario);
+  }
   
   @Get(':cod')
   public obtenerPorCodigoItem(@Param('cod', ParseIntPipe) id: number): any {
@@ -77,6 +83,7 @@ function mapItemInventarioToResponse(row: any) {
       codItem: item?.codItem,
       nombre: item?.nombreItem,
       descripcion: item?.desripcionItem,
+      tipo: item?.tipoItem,  
     },
     usuario: {
       codUsuario: usuario?.codUsuario,
