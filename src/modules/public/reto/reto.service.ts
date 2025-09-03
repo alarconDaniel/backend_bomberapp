@@ -151,8 +151,6 @@ export class RetoService {
     );
     return { ok: true };
   }
-  private readonly repo: Repository<Reto>;
-
 
   private toDTO = (r: Partial<Reto>): RetoDTO => ({
     codReto: r.codReto!,
@@ -220,7 +218,7 @@ export class RetoService {
 
   // ---------- LISTAR ----------
   public async listar(): Promise<RetoDTO[]> {
-    const rows = await this.repo.find({
+    const rows = await this.retoRepo.find({
       loadEagerRelations: false,
       relations: {},
       select: {
@@ -238,7 +236,7 @@ export class RetoService {
 
   // ---------- DETALLE ----------
   public async detalle(codReto: number): Promise<RetoDTO> {
-    const reto = await this.repo.findOne({
+    const reto = await this.retoRepo.findOne({
       where: { codReto },
       loadEagerRelations: false,
       relations: {},
@@ -258,43 +256,87 @@ export class RetoService {
   // ---------- CREAR ----------
   public async crear(payload: Partial<Reto>): Promise<RetoDTO> {
     try {
-      const clean = this.cleanPayload(payload);
+      const clean = { ...(payload as any) };
+  
 
-      if (!clean.nombreReto?.trim()) {
+      if ('codReto' in clean) delete clean.codReto;
+  
+   
+      clean.nombreReto = (clean.nombreReto ?? '').toString().trim();
+  
+  
+      if (clean.descripcionReto === undefined) clean.descripcionReto = null;
+      if (clean.metadataReto === undefined) clean.metadataReto = null;
+  
+      if (clean.tiempoEstimadoSegReto != null) {
+        clean.tiempoEstimadoSegReto = Math.max(0, Math.trunc(Number(clean.tiempoEstimadoSegReto)));
+        if (Number.isNaN(clean.tiempoEstimadoSegReto)) {
+          throw new HttpException('tiempoEstimadoSegReto inválido', HttpStatus.BAD_REQUEST);
+        }
+      }
+  
+      clean.esAutomaticoReto = Number(clean.esAutomaticoReto) ? 1 : 0;
+      clean.activo = Number(clean.activo) ? 1 : 0;
+  
+    
+      if (!clean.nombreReto) {
         throw new HttpException('nombreReto es requerido', HttpStatus.BAD_REQUEST);
       }
-      if (
-        clean.fechaInicioReto &&
-        clean.fechaFinReto &&
-        new Date(clean.fechaFinReto) < new Date(clean.fechaInicioReto)
-      ) {
-        throw new HttpException('fechaFinReto no puede ser anterior a fechaInicioReto', HttpStatus.BAD_REQUEST);
-      }
-      if (clean.tiempoEstimadoSegReto != null && clean.tiempoEstimadoSegReto < 0) {
-        throw new HttpException('tiempoEstimadoSegReto debe ser >= 0', HttpStatus.BAD_REQUEST);
-      }
+  
 
-      const reto = this.repo.create(clean as Partial<Reto>);
-      const saved = await this.repo.save(reto);
+      if (!clean.tipoReto) {
+        throw new HttpException('tipoReto es requerido (quiz|form)', HttpStatus.BAD_REQUEST);
+      }
+      clean.tipoReto = String(clean.tipoReto);
+      if (!['quiz', 'form'].includes(clean.tipoReto)) {
+        throw new HttpException('tipoReto inválido (use "quiz" o "form")', HttpStatus.BAD_REQUEST);
+      }
+  
+      if (clean.fechaInicioReto && clean.fechaFinReto) {
+        const ini = new Date(clean.fechaInicioReto);
+        const fin = new Date(clean.fechaFinReto);
+        if (fin < ini) {
+          throw new HttpException('fechaFinReto no puede ser anterior a fechaInicioReto', HttpStatus.BAD_REQUEST);
+        }
 
-      const fresh = await this.repo.findOne({
-        where: { codReto: saved.codReto },
-        loadEagerRelations: false,
-        relations: {},
-        select: {
-          codReto: true,
-          nombreReto: true,
-          descripcionReto: true,
-          tiempoEstimadoSegReto: true,
-          fechaInicioReto: true,
-          fechaFinReto: true,
-        },
-      });
-      return this.toDTO(fresh!);
+        if (isNaN(ini.getTime()) || isNaN(fin.getTime())) {
+          throw new HttpException('Fecha inválida', HttpStatus.BAD_REQUEST);
+        }
+      }
+  
+    
+      const reto = this.retoRepo.create(clean as Partial<Reto>);
+      const saved = await this.retoRepo.save(reto);
+  
+    
+      const fresh = await this.retoRepo.findOneBy({ codReto: saved.codReto });
+      if (!fresh) {
+        throw new HttpException('No se pudo refrescar el reto', HttpStatus.INTERNAL_SERVER_ERROR);
+      }
+      return this.toDTO(fresh);
+  
     } catch (e: any) {
+   
+      console.error('[RETOS][crear] FAIL =>', {
+        name: e?.name,
+        message: e?.message,
+        code: e?.code,       
+        errno: e?.errno,     
+        sqlMessage: e?.sqlMessage,
+        sqlState: e?.sqlState,
+        sql: e?.sql,
+        stack: e?.stack,
+      });
+  
       if (e instanceof HttpException) throw e;
       if (e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062) {
         throw new HttpException('Reto duplicado', HttpStatus.BAD_REQUEST);
+      }
+      if (e?.errno === 1366) { // enum/número/tinyint inválido
+        throw new HttpException('Valor inválido (enum/num)', HttpStatus.BAD_REQUEST);
+      }
+      if (e?.errno === 1292) { // fecha inválida
+        throw new HttpException('Fecha inválida', HttpStatus.BAD_REQUEST);
       }
       throw new HttpException('No se pudo crear el reto', HttpStatus.BAD_REQUEST);
     }
@@ -302,14 +344,14 @@ export class RetoService {
 
   // ---------- BORRAR ----------
   public async borrar(codReto: number): Promise<{ ok: true }> {
-    const r = await this.repo.delete({ codReto });
+    const r = await this.retoRepo.delete({ codReto });
     if (!r.affected) throw new NotFoundException('Reto no encontrado');
     return { ok: true };
   }
 
   // ---------- MODIFICAR ----------
   public async modificar(codReto: number, payload: Partial<Reto>): Promise<RetoDTO> {
-    const current = await this.repo.findOne({
+    const current = await this.retoRepo.findOne({
       where: { codReto },
       loadEagerRelations: false,
       relations: {},
@@ -338,8 +380,8 @@ export class RetoService {
       throw new BadRequestException('tiempoEstimadoSegReto debe ser >= 0');
     }
 
-    await this.repo.update({ codReto }, { ...current, ...clean, codReto });
-    const fresh = await this.repo.findOne({
+    await this.retoRepo.update({ codReto }, { ...current, ...clean, codReto });
+    const fresh = await this.retoRepo.findOne({
       where: { codReto },
       loadEagerRelations: false,
       relations: {},
