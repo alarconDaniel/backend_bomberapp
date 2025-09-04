@@ -1,5 +1,5 @@
-// src/modules/reto/reto.service.ts  
-import { Injectable, NotFoundException, HttpException, HttpStatus, BadRequestException, ForbiddenException } from '@nestjs/common';
+// src/modules/reto/reto.service.ts
+import { Injectable, NotFoundException, HttpException, HttpStatus, BadRequestException } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { Reto } from 'src/models/reto/reto';
 import { UsuarioReto } from 'src/models/usuario-reto/usuario-reto';
@@ -19,11 +19,15 @@ type RetoDTO = {
 export class RetoService {
   private retoRepo: Repository<Reto>;
   private urRepo: Repository<UsuarioReto>;
-  private hd: any; // festivos Colombia
+  private hd: any; // festivos CO
+
+  // OJO: en tu original tenías también this.repo; lo conservamos
+  private readonly repo: Repository<Reto>;
 
   constructor(private readonly ds: DataSource) {
     this.retoRepo = ds.getRepository(Reto);
-    this.urRepo = ds.getRepository(UsuarioReto);
+    this.repo     = ds.getRepository(Reto);
+    this.urRepo   = ds.getRepository<UsuarioReto>(UsuarioReto);
     this.hd = new Holidays('CO');
   }
 
@@ -43,7 +47,8 @@ export class RetoService {
     if (!fecha.isValid()) throw new BadRequestException('Fecha inválida (YYYY-MM-DD)');
     const ymd = fecha.format('YYYY-MM-DD');
 
-    const rows = await this.ds.query(`
+    const rows = await this.ds.query(
+      `
       SELECT
         ur.cod_usuario_reto  AS codUsuarioReto,
         ur.cod_usuario       AS codUsuario,
@@ -68,7 +73,9 @@ export class RetoService {
                AND ur.ventana_inicio <= ? AND ur.ventana_fin >= ?)
         )
       ORDER BY r.nombre_reto ASC
-    `, [codUsuario, ymd, ymd, ymd]);
+    `,
+      [codUsuario, ymd, ymd, ymd],
+    );
 
     return rows;
   }
@@ -81,8 +88,10 @@ export class RetoService {
   }
 
   /**
-   * Asigna para TODOS los operarios (cod_rol=2) los retos plantillas (es_automatico_reto=1)
-   * como single-day con fecha_objetivo = hoy. Idempotente con UNIQUE (si lo tienes).
+   * NUEVO: Asigna retos automáticos SOLO a usuarios cuyo cargo aparece en cargos_retos
+   * y cuyo reto está vigente y activo en la fecha dada.
+   * - Solo rol=2 (operarias)
+   * - Idempotente si aplicas los UNIQUE sugeridos (ver SQL patch), y además usamos INSERT IGNORE.
    */
   public async asignarAutomaticosSiLaboral(hoyYmd: string) {
     // Bogotá fijo (sin DST)
@@ -91,43 +100,30 @@ export class RetoService {
       return { ok: true, intentadas: 0, nuevas: 0, motivo: 'no-laboral', fecha: hoyYmd };
     }
 
-    // Operarias
-    const usuarios: Array<{ cod_usuario: number }> = await this.ds.query(
-      'SELECT cod_usuario FROM usuarios WHERE cod_rol = 2'
-    );
+    // Usamos un INSERT...SELECT único, mucho más eficiente y 100% por cargo.
+    // Regla: si un reto no está en cargos_retos, NO se asigna a nadie.
+    const sql = `
+      INSERT IGNORE INTO usuarios_retos (cod_usuario, cod_reto, fecha_objetivo, estado)
+      SELECT
+        u.cod_usuario,
+        r.cod_reto,
+        ? AS fecha_objetivo,
+        'asignado' AS estado
+      FROM usuarios u
+      JOIN cargos_retos cr ON cr.cod_cargo_usuario = u.cod_cargo_usuario
+      JOIN retos r          ON r.cod_reto = cr.cod_reto
+      WHERE u.cod_rol = 2
+        AND r.es_automatico_reto = 1
+        AND r.activo = 1
+        AND r.fecha_inicio_reto <= ?
+        AND r.fecha_fin_reto   >= ?
+    `;
 
-    // SOLO plantillas cuyo rango de vigencia cubre hoy
-    const retosAuto: Array<{ cod_reto: number }> = await this.ds.query(
-      `
-    SELECT cod_reto
-    FROM retos
-    WHERE es_automatico_reto = 1
-      AND fecha_inicio_reto <= ?
-      AND fecha_fin_reto   >= ?
-    `,
-      [hoyYmd, hoyYmd]
-    );
+    const res: any = await this.ds.query(sql, [hoyYmd, hoyYmd, hoyYmd]);
 
-    if (!retosAuto.length || !usuarios.length) {
-      return { ok: true, intentadas: 0, nuevas: 0, motivo: 'sin-usuarios-o-retos-vigentes', fecha: hoyYmd };
-    }
-
-    // Idempotencia: confía en tus UNIQUEs (uq_ur_dia / uq_ur_win)
-    const insertSql = `
-    INSERT IGNORE INTO usuarios_retos (cod_usuario, cod_reto, fecha_objetivo, estado)
-    VALUES (?, ?, ?, 'asignado')
-  `;
-
-    let intentadas = 0, nuevas = 0;
-    for (const u of usuarios) {
-      for (const r of retosAuto) {
-        intentadas++;
-        const res: any = await this.ds.query(insertSql, [u.cod_usuario, r.cod_reto, hoyYmd]);
-        // Nota: según el driver, res puede variar. En MySQL común: affectedRows=1 para insert real.
-        if (res?.affectedRows === 1) nuevas++;
-      }
-    }
-    return { ok: true, intentadas, nuevas, fecha: hoyYmd };
+    // El driver puede variar; en mysql2 suele exponer affectedRows / warningStatus.
+    const nuevas = Number(res?.affectedRows ?? 0);
+    return { ok: true, intentadas: nuevas, nuevas, fecha: hoyYmd };
   }
 
   /**
@@ -151,8 +147,6 @@ export class RetoService {
     );
     return { ok: true };
   }
-  private readonly repo: Repository<Reto>;
-
 
   private toDTO = (r: Partial<Reto>): RetoDTO => ({
     codReto: r.codReto!,
@@ -163,57 +157,58 @@ export class RetoService {
     fechaFinReto: (r as any).fechaFinReto ?? null,
   });
 
-  /** NUEVO: devuelve el reto con estructura completa para renderizar (quiz o form) */
+  /** Devuelve el reto con estructura completa para renderizar (quiz / form / archivo) */
   public async verRetoFull(codReto: number) {
     const r = await this.retoRepo.findOne({ where: { codReto } });
     if (!r) throw new NotFoundException('Reto no encontrado');
 
     if (r.tipoReto === 'quiz') {
-      // trae preguntas y subestructuras
-      const preguntas = await this.ds.query(`
+      const preguntas = await this.ds.query(
+        `
         SELECT p.cod_pregunta as codPregunta, p.numero_pregunta as numero,
                p.enunciado_pregunta as enunciado, p.tipo_pregunta as tipo,
                p.puntos_pregunta as puntos, p.tiempo_max_pregunta as tiempoMax
         FROM preguntas p WHERE p.cod_reto = ? ORDER BY p.numero_pregunta ASC
-      `, [codReto]);
+      `,
+        [codReto],
+      );
 
-      // para cada tipo adjunta extras
       for (const q of preguntas) {
         if (q.tipo === 'abcd') {
           q.opciones = await this.ds.query(
             `SELECT cod_opcion as codOpcion, texto_opcion as texto, validez_opcion as correcta
-               FROM opciones_abcd WHERE cod_pregunta=? ORDER BY cod_opcion ASC`,
-            [q.codPregunta]
+             FROM opciones_abcd WHERE cod_pregunta=? ORDER BY cod_opcion ASC`,
+            [q.codPregunta],
           );
         }
         if (q.tipo === 'rellenar') {
           const [row] = await this.ds.query(
             `SELECT respuesta_correcta as correcta FROM preguntas_rellenar WHERE cod_pregunta=?`,
-            [q.codPregunta]
+            [q.codPregunta],
           );
-          q.correcta = row?.correcta ?? null; // podrías omitirla al cliente si no quieres filtrar trampa
+          q.correcta = row?.correcta ?? null;
         }
         if (q.tipo === 'emparejar') {
           q.items = await this.ds.query(
             `SELECT cod_item as codItem, lado, contenido FROM items_emparejamiento WHERE cod_pregunta=? ORDER BY cod_item ASC`,
-            [q.codPregunta]
+            [q.codPregunta],
           );
           q.parejas = await this.ds.query(
             `SELECT cod_item_A as a, cod_item_B as b FROM parejas_correctas WHERE cod_pregunta=?`,
-            [q.codPregunta]
+            [q.codPregunta],
           );
         }
         if (q.tipo === 'reporte') {
           const [row] = await this.ds.query(
             `SELECT instrucciones_pregunta as instrucciones, tipo_archivo_permitido as tipos FROM preguntas_reporte WHERE cod_pregunta=?`,
-            [q.codPregunta]
+            [q.codPregunta],
           );
           q.reporte = row ?? null;
         }
       }
       return { ...r, quiz: { preguntas } };
     } else {
-      // form | checklist → usa metadata_reto.schema
+      // form | archivo → usa metadata_reto.schema si existe
       return { ...r, form: r.metadataReto?.schema ?? null };
     }
   }

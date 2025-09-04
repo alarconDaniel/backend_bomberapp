@@ -8,8 +8,7 @@ import { RetosCron } from './retos.cron';
 
 @Module({
   imports: [
-    ConexionModule,
-    ScheduleModule.forRoot(),
+    ConexionModule
   ],
   controllers: [RetoController],
   providers: [RetoService, RetosCron],

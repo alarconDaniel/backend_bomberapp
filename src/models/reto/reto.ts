@@ -1,6 +1,8 @@
 // src/models/reto/reto.ts
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
+export type TipoReto = 'quiz' | 'form' | 'archivo';
+
 @Entity({ name: 'retos' })
 export class Reto {
   @PrimaryGeneratedColumn({ name: 'cod_reto', type: 'int' })
@@ -24,8 +26,13 @@ export class Reto {
   @Column({ name: 'es_automatico_reto', type: 'tinyint', default: () => '0' })
   esAutomaticoReto!: number;
 
-  @Column({ name: 'tipo_reto', type: 'enum', enum: ['quiz','form','checklist'], default: 'quiz' })
-  tipoReto!: 'quiz'|'form'|'checklist';
+  @Column({
+    name: 'tipo_reto',
+    type: 'enum',
+    enum: ['quiz', 'form', 'archivo'],
+    default: 'quiz',
+  })
+  tipoReto!: TipoReto;
 
   @Column({ name: 'metadata_reto', type: 'json', nullable: true })
   metadataReto!: any | null;
