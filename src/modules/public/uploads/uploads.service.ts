@@ -1,45 +1,105 @@
 import { Injectable } from '@nestjs/common';
-import { Storage } from '@google-cloud/storage';
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  DeleteObjectCommand,
+} from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 type PresignArgs = { filename: string; contentType: string; codUsuario: number };
 
 @Injectable()
 export class UploadsService {
-  private storage: Storage;
-  private bucketName: string;
+  private readonly s3: S3Client;
+  private readonly bucket: string;
+  private readonly expiresIn: number;
 
   constructor() {
-    // lee credenciales desde env (clave con \n escapadas en Windows)
-    const privateKey = process.env.GCS_PRIVATE_KEY?.replace(/\\n/g, '\n');
-    this.storage = new Storage({
-      projectId: process.env.GCLOUD_PROJECT,
-      credentials: {
-        client_email: process.env.GCS_CLIENT_EMAIL,
-        private_key: privateKey,
-      },
+    const endpoint = process.env.S3_ENDPOINT;
+    const accessKeyId = process.env.S3_ACCESS_KEY;
+    const secretAccessKey = process.env.S3_SECRET_KEY;
+    const region = process.env.S3_REGION || 'us-east-1';
+    const bucket = process.env.S3_BUCKET;
+
+    if (!endpoint || !accessKeyId || !secretAccessKey || !bucket) {
+      throw new Error(
+        'Faltan variables S3_ENDPOINT / S3_ACCESS_KEY / S3_SECRET_KEY / S3_BUCKET',
+      );
+    }
+
+    this.s3 = new S3Client({
+      region,
+      endpoint, // ej: http://localhost:9000
+      forcePathStyle: true, // necesario para MinIO
+      credentials: { accessKeyId, secretAccessKey },
     });
 
-    this.bucketName = process.env.GCS_BUCKET!;
-    if (!this.bucketName) {
-      throw new Error('Falta env GCS_BUCKET');
-    }
+    this.bucket = bucket;
+    this.expiresIn = Number(process.env.S3_PRESIGN_TTL_SEC ?? 300); // 5 min
   }
 
+  // Presign para SUBIR (PUT)
   async createSignedUploadUrl({ filename, contentType, codUsuario }: PresignArgs) {
-    const objectKey = `usuarios/${codUsuario}/${Date.now()}-${filename}`;
-    const bucket = this.storage.bucket(this.bucketName);
-    const file = bucket.file(objectKey);
+    const Key = `usuarios/${codUsuario}/${Date.now()}-${filename}`;
 
-    const [signedUrl] = await file.getSignedUrl({
-      version: 'v4',
-      action: 'write',                // subir (PUT)
-      expires: Date.now() + 5 * 60 * 1000, // 5 min
-      contentType,
+    const cmd = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key,
+      ContentType: contentType,
     });
 
-    // opcional: URL pública de lectura si luego la haces public o con otra firma
-    const publicUrl = `https://storage.googleapis.com/${this.bucketName}/${encodeURIComponent(objectKey)}`;
+    const signedUrl = await getSignedUrl(this.s3, cmd, {
+      expiresIn: this.expiresIn,
+    });
 
-    return { provider: 'gcs', signedUrl, objectKey, contentType, publicUrl };
+    const publicBase = process.env.S3_PUBLIC_BASE ?? process.env.S3_ENDPOINT!;
+    const publicUrl = `${publicBase}/${this.bucket}/${encodeURIComponent(Key)}`;
+
+    return {
+      provider: 's3',
+      signedUrl, // URL para hacer el PUT
+      objectKey: Key, // ruta dentro del bucket
+      contentType,
+      expiresIn: this.expiresIn,
+      publicUrl, // lectura directa si tu MinIO lo permite
+    };
+  }
+
+  // Presign para DESCARGAR (GET temporal)
+  async createSignedDownloadUrl(key: string) {
+    const cmd = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+    });
+    const url = await getSignedUrl(this.s3, cmd, { expiresIn: this.expiresIn });
+    return { url, expiresIn: this.expiresIn };
+  }
+
+  // Listar objetos por usuario (prefijo usuarios/{codUsuario}/)
+  async listByUser(codUsuario: number) {
+    const Prefix = `usuarios/${codUsuario}/`;
+    const cmd = new ListObjectsV2Command({
+      Bucket: this.bucket,
+      Prefix,
+    });
+    const out = await this.s3.send(cmd);
+    const items =
+      (out.Contents ?? []).map((o) => ({
+        key: o.Key,
+        size: o.Size,
+        lastModified: o.LastModified,
+        etag: o.ETag,
+      })) || [];
+    return { prefix: Prefix, items };
+  }
+
+  // Borrar un objeto
+  async deleteObject(key: string) {
+    await this.s3.send(
+      new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+    return { deleted: key };
   }
 }
