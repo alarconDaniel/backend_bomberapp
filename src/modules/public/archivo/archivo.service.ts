@@ -303,4 +303,36 @@ export class ArchivoService {
   async actualizarTamanoTrasSubida(_path: string) {
     return { updated: false, size: 0 };
   }
+
+  // === S3/MinIO: crear registro y actualizar metadatos ===
+
+async createS3Record(p: {
+  codUsuario?: number | null;
+  bucket: string;
+  keyPath: string;
+  nombreOriginal: string;
+  tipoContenido: string;
+  tamanoBytes?: string | number;
+  storageEtag?: string | null;
+}) {
+  const a = this.archivoRepo.create({
+    codUsuario: p.codUsuario ?? null,
+    provider: 's3',
+    bucket: p.bucket,
+    keyPath: p.keyPath,
+    nombreOriginal: p.nombreOriginal,
+    tipoContenido: p.tipoContenido,
+    tamanoBytes: String(p.tamanoBytes ?? '0'),
+    storageEtag: p.storageEtag ?? null,
+    // legacy: la dejamos vacía para S3
+    rutaArchivo: '',
+  });
+  return this.archivoRepo.save(a);
+}
+
+async updateAfterUpload(codArchivo: number, patch: Partial<Archivo>) {
+  await this.archivoRepo.update({ codArchivo }, patch);
+  return this.archivoRepo.findOneByOrFail({ codArchivo });
+}
+
 }

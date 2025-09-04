@@ -1,17 +1,18 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Archivo } from 'src/models/archivo/archivo';
-import { Usuario } from 'src/models/usuario/usuario';
+import { Archivo } from '../../../models/archivo/archivo';
+import { Usuario } from '../../../models/usuario/usuario';
 import { ArchivoService } from './archivo.service';
-import { ArchivoController } from './archivo.controller';
+
+// ⬇️ importa el módulo que expone GoogleDriveOAuthService
+// ajusta el nombre/ruta si en tu proyecto se llama distinto
 import { GoogleDriveOAuthModule } from '../google-token/google-token.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Archivo, Usuario]),
-    GoogleDriveOAuthModule, // módulo que exporta GoogleDriveOAuthService
+    TypeOrmModule.forFeature([Archivo, Usuario]), 
+    forwardRef(() => GoogleDriveOAuthModule),          
   ],
-  controllers: [ArchivoController],
   providers: [ArchivoService],
   exports: [ArchivoService],
 })
