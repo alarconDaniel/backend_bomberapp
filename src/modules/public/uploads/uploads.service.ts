@@ -1,20 +1,26 @@
-import { Injectable } from '@nestjs/common';
+// src/modules/public/uploads/uploads.service.ts
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import {
-  S3Client,
-  PutObjectCommand,
-  GetObjectCommand,
-  ListObjectsV2Command,
-  DeleteObjectCommand,
+  S3Client, PutObjectCommand, GetObjectCommand,
+  ListObjectsV2Command, DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-type PresignArgs = { filename: string; contentType: string; codUsuario: number };
+export type TipoArea = 'mantenimiento' | 'supervision';
+
+type PresignArgs = {
+  filename: string;
+  contentType: string;
+  codUsuario: number;
+  tipo?: TipoArea;               // opcional: subcarpeta por área
+};
 
 @Injectable()
 export class UploadsService {
   private readonly s3: S3Client;
   private readonly bucket: string;
   private readonly expiresIn: number;
+  private readonly publicBase?: string;
 
   constructor() {
     const endpoint = process.env.S3_ENDPOINT;
@@ -24,25 +30,31 @@ export class UploadsService {
     const bucket = process.env.S3_BUCKET;
 
     if (!endpoint || !accessKeyId || !secretAccessKey || !bucket) {
-      throw new Error(
-        'Faltan variables S3_ENDPOINT / S3_ACCESS_KEY / S3_SECRET_KEY / S3_BUCKET',
+      throw new InternalServerErrorException(
+        'Faltan env S3_ENDPOINT / S3_ACCESS_KEY / S3_SECRET_KEY / S3_BUCKET',
       );
     }
 
     this.s3 = new S3Client({
       region,
-      endpoint, // ej: http://localhost:9000
-      forcePathStyle: true, // necesario para MinIO
+      endpoint,
+      forcePathStyle: true, // MinIO
       credentials: { accessKeyId, secretAccessKey },
     });
 
-    this.bucket = bucket;
-    this.expiresIn = Number(process.env.S3_PRESIGN_TTL_SEC ?? 300); // 5 min
+    this.bucket = bucket!;
+    this.expiresIn = Number(process.env.S3_PRESIGN_TTL_SEC ?? 300);
+    this.publicBase = process.env.S3_PUBLIC_BASE;
   }
 
-  // Presign para SUBIR (PUT)
-  async createSignedUploadUrl({ filename, contentType, codUsuario }: PresignArgs) {
-    const Key = `usuarios/${codUsuario}/${Date.now()}-${filename}`;
+  private buildUserKey(codUsuario: number, filename: string, tipo?: TipoArea) {
+    const safe = filename.replace(/[/\\]/g, '_');
+    const areaSeg = tipo ? `/${tipo}` : '';
+    return `usuarios/${codUsuario}${areaSeg}/${Date.now()}-${safe}`;
+  }
+
+  async createSignedUploadUrl({ filename, contentType, codUsuario, tipo }: PresignArgs) {
+    const Key = this.buildUserKey(codUsuario, filename, tipo);
 
     const cmd = new PutObjectCommand({
       Bucket: this.bucket,
@@ -50,56 +62,45 @@ export class UploadsService {
       ContentType: contentType,
     });
 
-    const signedUrl = await getSignedUrl(this.s3, cmd, {
-      expiresIn: this.expiresIn,
-    });
+    const signedUrl = await getSignedUrl(this.s3, cmd, { expiresIn: this.expiresIn });
 
-    const publicBase = process.env.S3_PUBLIC_BASE ?? process.env.S3_ENDPOINT!;
-    const publicUrl = `${publicBase}/${this.bucket}/${encodeURIComponent(Key)}`;
+    const publicUrlBase = this.publicBase || process.env.S3_ENDPOINT!;
+    const publicUrl = `${publicUrlBase}/${this.bucket}/${encodeURIComponent(Key)}`;
 
     return {
-      provider: 's3',
-      signedUrl, // URL para hacer el PUT
-      objectKey: Key, // ruta dentro del bucket
+      provider: 's3' as const,
+      signedUrl,
+      objectKey: Key,
       contentType,
       expiresIn: this.expiresIn,
-      publicUrl, // lectura directa si tu MinIO lo permite
+      publicUrl,
     };
   }
 
-  // Presign para DESCARGAR (GET temporal)
   async createSignedDownloadUrl(key: string) {
-    const cmd = new GetObjectCommand({
-      Bucket: this.bucket,
-      Key: key,
-    });
+    const cmd = new GetObjectCommand({ Bucket: this.bucket, Key: key });
     const url = await getSignedUrl(this.s3, cmd, { expiresIn: this.expiresIn });
     return { url, expiresIn: this.expiresIn };
   }
 
-  // Listar objetos por usuario (prefijo usuarios/{codUsuario}/)
   async listByUser(codUsuario: number) {
     const Prefix = `usuarios/${codUsuario}/`;
-    const cmd = new ListObjectsV2Command({
-      Bucket: this.bucket,
-      Prefix,
-    });
-    const out = await this.s3.send(cmd);
-    const items =
-      (out.Contents ?? []).map((o) => ({
-        key: o.Key,
-        size: o.Size,
-        lastModified: o.LastModified,
-        etag: o.ETag,
-      })) || [];
+    const cmd = new ListObjectsV2Command({ Bucket: this.bucket, Prefix });
+    const res = await this.s3.send(cmd);
+
+    const items = (res.Contents || [])
+      .filter(x => !!x.Key && x.Key !== Prefix)
+      .map(x => ({
+        key: x.Key!,
+        size: x.Size ?? 0,
+        lastModified: x.LastModified?.toISOString?.() ?? new Date().toISOString(),
+      }));
+
     return { prefix: Prefix, items };
   }
 
-  // Borrar un objeto
   async deleteObject(key: string) {
-    await this.s3.send(
-      new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
-    );
-    return { deleted: key };
+    await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+    return { deleted: true, key };
   }
 }

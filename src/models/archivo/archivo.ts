@@ -40,12 +40,16 @@ export class Archivo {
    * Para archivos antiguos en Drive tal vez guardabas una "ruta".
    * La mantenemos para compatibilidad. Para S3/MinIO usa bucket + keyPath.
    */
-  @Column({ name: 'ruta_archivo', type: 'varchar', length: 512 })
-  rutaArchivo!: string;
+  // models/archivo/archivo.ts
+  @Column({ name: 'ruta_archivo', type: 'varchar', nullable: true, default: null })
+  rutaArchivo: string | null;
 
   @Column({ name: 'nombre_original', type: 'varchar', length: 255 })
   nombreOriginal!: string;
 
+  @Column({ name: 'area', type: 'varchar', length: 32, nullable: true })
+  area?: string | null;
+  
   // MIME
   @Column({ name: 'tipo_contenido', type: 'varchar', length: 100 })
   tipoContenido!: string;
