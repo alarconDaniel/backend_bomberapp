@@ -5,7 +5,6 @@ import { Module } from '@nestjs/common';
 import { AuditoriaTrofeo } from 'src/models/auditoria-trofeo/auditoria-trofeo';
 import { CargoUsuario } from 'src/models/cargo_usuario/cargo-usuario';
 import { EstadisticaUsuario } from 'src/models/estadistica-usuario/estadistica-usuario';
-import { GoogleToken } from 'src/models/google-token/google-token';
 import { ItemTienda } from 'src/models/item-tienda/item-tienda';
 import { ItemInventario } from 'src/models/item_inventario/item_inventario';
 import { Logro } from 'src/models/logro/logro';
@@ -37,7 +36,7 @@ import { CargoReto } from 'src/models/cargo-reto/cargo-reto';
       entities: [
         Reto, ItemTienda, Usuario, Rol, TokenReinicioContrasena,
         UsuarioReto, CargoUsuario, EstadisticaUsuario, ItemInventario,
-        Logro, UsuarioLogro, Trofeo, AuditoriaTrofeo, Archivo, GoogleToken,
+        Logro, UsuarioLogro, Trofeo, AuditoriaTrofeo, Archivo,
         RespuestaFormulario, RespuestaQuiz, CargoReto
       ],
     }),
