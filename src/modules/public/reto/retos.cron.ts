@@ -17,7 +17,7 @@ export class RetosCron {
     this.log.warn(`Instanciado RetosCron en pid=${process.pid}`);
   }
 
-  @Cron('0 35 0 * * *', { timeZone: 'America/Bogota' })
+  @Cron('0 5 0 * * *', { timeZone: 'America/Bogota' })
   async tick() {
     if (process.env.ENABLE_CRONS === 'false') {
       this.log.debug('Cron deshabilitado por ENABLE_CRONS=false');
