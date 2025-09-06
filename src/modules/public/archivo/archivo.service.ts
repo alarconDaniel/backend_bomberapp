@@ -6,13 +6,24 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Archivo } from 'src/models/archivo/archivo';
-import { Usuario } from 'src/models/usuario/usuario';
+
 import type { Express } from 'express';
-import { drive_v3 } from 'googleapis';
 import * as mime from 'mime-types';
-import { Readable } from 'stream';
-import { GoogleDriveOAuthService } from '../google-token/google-drive-oauth.service';
+
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+  ListObjectsV2Command,
+  HeadObjectCommand,
+} from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+
+import { Archivo } from 'src/models/archivo/archivo';
+
+import { Usuario } from 'src/models/usuario/usuario';
+import { DeepPartial } from 'typeorm'; 
 
 const TIPOS_PERMITIDOS = new Set<string>([
   'application/pdf',
@@ -31,39 +42,58 @@ export interface ListarArchivosParams {
   skip: number;
 }
 
-function streamFromBuffer(buf: Buffer) {
-  const r = new Readable();
-  r.push(buf);
-  r.push(null);
-  return r;
+function sanitizeSegment(s: string) {
+  return s.replace(/[\\]/g, '/').replace(/^\/*|\/*$/g, '').replace(/[/]/g, '_');
 }
+
+function normKey(k: string) {
+  return (k || '').replace(/^\/+/, '');
+}
+
+export type TipoArea = 'mantenimiento' | 'supervision';
 
 @Injectable()
 export class ArchivoService {
+  
+  private readonly s3: S3Client;
+  private readonly bucket: string;
+  private readonly expiresIn: number;
+  private readonly publicBase?: string;
+
   constructor(
     @InjectRepository(Archivo) private readonly archivoRepo: Repository<Archivo>,
     @InjectRepository(Usuario) private readonly usuarioRepo: Repository<Usuario>,
-    private readonly driveOAuth: GoogleDriveOAuthService,
-  ) {}
+  ) {
+    const endpoint = process.env.S3_ENDPOINT;
+    const accessKeyId = process.env.S3_ACCESS_KEY;
+    const secretAccessKey = process.env.S3_SECRET_KEY;
+    const region = process.env.S3_REGION || 'us-east-1';
+    const bucket = process.env.S3_BUCKET;
 
-  // IDs desde .env
-  private readonly DRIVE_ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID || '';
-  private readonly DRIVE_FOLDER_MANTENIMIENTO = process.env.DRIVE_FOLDER_MANTENIMIENTO || '';
-  private readonly DRIVE_FOLDER_SUPERVISION = process.env.DRIVE_FOLDER_SUPERVISION || '';
+    if (!endpoint || !accessKeyId || !secretAccessKey || !bucket) {
+      throw new InternalServerErrorException(
+        'Faltan env S3_ENDPOINT / S3_ACCESS_KEY / S3_SECRET_KEY / S3_BUCKET',
+      );
+    }
 
+    this.s3 = new S3Client({
+      region,
+      endpoint,
+      forcePathStyle: true, // necesario para MinIO
+      credentials: { accessKeyId, secretAccessKey },
+    });
+
+    this.bucket = bucket;
+    this.expiresIn = Number(process.env.S3_PRESIGN_TTL_SEC ?? 300);
+    this.publicBase = process.env.S3_PUBLIC_BASE; // opcional (si expones MinIO públicamente)
+  }
+
+  // ─────────────── helpers ───────────────
   private async asegurarUsuario(codUsuario?: number) {
     if (!codUsuario) return null;
     const usuario = await this.usuarioRepo.findOne({ where: { codUsuario } });
     if (!usuario) throw new NotFoundException('Usuario no encontrado');
     return usuario;
-  }
-
-  private resolveParentByTipo(tipo?: string): string {
-    const t = (tipo || '').toLowerCase().trim();
-    if (t === 'mantenimiento' && this.DRIVE_FOLDER_MANTENIMIENTO) return this.DRIVE_FOLDER_MANTENIMIENTO;
-    if (t === 'supervision' && this.DRIVE_FOLDER_SUPERVISION) return this.DRIVE_FOLDER_SUPERVISION;
-    if (this.DRIVE_ROOT_FOLDER_ID) return this.DRIVE_ROOT_FOLDER_ID;
-    throw new BadRequestException('No hay carpeta destino configurada (revisa .env).');
   }
 
   private validarMime(archivo: Express.Multer.File) {
@@ -74,55 +104,39 @@ export class ArchivoService {
     return String(tipo);
   }
 
-  // Buscar por nombre exacto en una carpeta
-  private async findByNameInFolder(
-    drive: drive_v3.Drive,
-    name: string,
-    folderId: string,
-  ): Promise<drive_v3.Schema$File[]> {
-    const safeName = name.replace(/'/g, "\\'");
-    const q = `name='${safeName}' and '${folderId}' in parents and trashed=false`;
-    const { data } = await drive.files.list({
-      q,
-      fields: 'files(id,name,mimeType,size,parents,webViewLink,modifiedTime)',
-      pageSize: 50,
-      spaces: 'drive',
-      corpus: 'user',
-    });
-    return data.files ?? [];
-  }
+  private buildKey(params: {
+    codUsuario: number;
+    filename: string;
+    tipo?: 'mantenimiento' | 'supervision';
+    carpeta?: string;       // subcarpeta lógica
+    overwrite?: boolean;
+    forceName?: string;
+  }) {
+    const baseName = (params.forceName || params.filename || 'archivo.bin').trim();
+    const safeName = sanitizeSegment(baseName);
+    const userPrefix = `usuarios/${params.codUsuario}`;
+    const tipoSeg = params.tipo ? `/${sanitizeSegment(params.tipo)}` : '';
+    const carpetaSeg = params.carpeta ? `/${sanitizeSegment(params.carpeta)}` : '';
 
-  private async ensurePublicReadable(fileId: string, drive: drive_v3.Drive) {
-    try {
-      await drive.permissions.create({
-        fileId,
-        requestBody: { role: 'reader', type: 'anyone' },
-      });
-    } catch (e: any) {
-      if (e?.code !== 403 && e?.code !== 400) {
-        // eslint-disable-next-line no-console
-        console.warn('[DrivePerms]', e?.response?.data || e);
-      }
+    if (params.overwrite) {
+      // sobrescribe usando un nombre fijo
+      return `${userPrefix}${tipoSeg}${carpetaSeg}/${safeName}`;
     }
+    // nombre único con timestamp
+    return `${userPrefix}${tipoSeg}${carpetaSeg}/${Date.now()}-${safeName}`;
   }
 
-  async obtenerUrlDescargaFirmada(
-    path: string,
-    codUsuario: number,
-    driveClient?: drive_v3.Drive,
-  ) {
-    const drive = driveClient || (await this.driveOAuth.getDrive(codUsuario));
-    await this.ensurePublicReadable(path, drive);
-    const { data } = await drive.files.get({ fileId: path, fields: 'id, webContentLink' });
-    if (data.webContentLink) return data.webContentLink;
-    return `https://www.googleapis.com/drive/v3/files/${path}?alt=media`;
+  // ─────────────── PRESIGN DESCARGA ───────────────
+  async obtenerUrlDescargaFirmada(path: string) {
+    const cmd = new GetObjectCommand({ Bucket: this.bucket, Key: path });
+    return getSignedUrl(this.s3, cmd, { expiresIn: this.expiresIn });
   }
 
-  // --------------------------- SUBIR (con sobrescritura por nombre) ---------------------------
+  // ─────────────── SUBIR (multipart al backend) ───────────────
   async subirDesdeBackend(
     archivo: Express.Multer.File,
     codUsuario: number,
-    carpeta = 'docs', // si viene como 'id:<FOLDER_ID>' lo respeta
+    carpeta?: string,
     tipo?: 'mantenimiento' | 'supervision',
     opts?: { overwrite?: boolean; forceName?: string },
   ) {
@@ -130,110 +144,64 @@ export class ArchivoService {
     const mimeType = this.validarMime(archivo);
 
     await this.asegurarUsuario(codUsuario);
-    const drive = await this.driveOAuth.getDrive(codUsuario);
 
-    let parentId = this.resolveParentByTipo(tipo);
-    if (carpeta?.startsWith('id:')) {
-      const override = carpeta.slice(3).trim();
-      if (!override) throw new BadRequestException('carpeta con formato id:<FOLDER_ID> inválido');
-      parentId = override;
-    }
-
-    const overwrite = opts?.overwrite ?? true;
-    const nombreDestino =
-      (opts?.forceName || archivo.originalname || `archivo.${mime.extension(mimeType) || 'bin'}`).trim();
-
-    // ¿Existe un archivo con ese nombre en la carpeta?
-    let targetId: string | null = null;
-    if (overwrite && nombreDestino) {
-      const matches = await this.findByNameInFolder(drive, nombreDestino, parentId);
-      if (matches.length > 0) targetId = matches[0].id!;
-    }
-
-    const media = {
-      mimeType,
-      body: streamFromBuffer(archivo.buffer),
-    };
-
-    // Crear o actualizar en Drive
-    let data: drive_v3.Schema$File;
-    let action: 'created' | 'updated' = 'created';
-    try {
-      if (targetId) {
-        const upd = await drive.files.update({
-          fileId: targetId,
-          media,
-          requestBody: { name: nombreDestino },
-          fields: 'id,name,mimeType,size,webViewLink,webContentLink,parents,modifiedTime',
-        });
-        data = upd.data;
-        action = 'updated';
-      } else {
-        const res = await drive.files.create({
-          requestBody: { name: nombreDestino, parents: [parentId] },
-          media,
-          fields: 'id,name,mimeType,size,webViewLink,webContentLink,parents,createdTime',
-        });
-        data = res.data;
-        action = 'created';
-      }
-    } catch (e: any) {
-      const msg =
-        e?.response?.data?.error_description ||
-        e?.response?.data?.error ||
-        e?.message ||
-        'Fallo subiendo a Drive';
-      // eslint-disable-next-line no-console
-      console.error('[DriveUpload]', e?.response?.data || e);
-      throw new InternalServerErrorException(`Google Drive: ${msg}`);
-    }
-
-    const fileId = data.id!;
-    await this.ensurePublicReadable(fileId, drive);
-
-    // ---------------- FIX TypeORM: crear/actualizar sin null ----------------
-    // Buscar registro por (rutaArchivo = fileId, codUsuario)
-    let entity = await this.archivoRepo.findOne({
-      where: { rutaArchivo: fileId, codUsuario } as any,
+    const Key = this.buildKey({
+      codUsuario,
+      filename: archivo.originalname || `archivo.${mime.extension(mimeType) || 'bin'}`,
+      tipo,
+      carpeta,
+      overwrite: opts?.overwrite ?? true,
+      forceName: opts?.forceName,
     });
 
-    if (!entity) {
-      // crear
-      const nuevo: Partial<Archivo> = {
-        rutaArchivo: fileId,
-        nombreOriginal: nombreDestino,
-        tipoContenido: data.mimeType || mimeType,
-        tamanoBytes: String(data.size ?? archivo.size ?? 0),
-        fechaCreacion: new Date(),
+    try {
+      // PUT a S3/MinIO
+      const putRes = await this.s3.send(
+        new PutObjectCommand({
+          Bucket: this.bucket,
+          Key,
+          ContentType: mimeType,
+          Body: archivo.buffer,
+        }),
+      );
+      const etag = (putRes as any).ETag ?? null;
+
+      // HEAD (opcional) para confirmar tamaño
+      let size = archivo.size;
+      try {
+        const head = await this.s3.send(new HeadObjectCommand({ Bucket: this.bucket, Key }));
+        if (typeof head.ContentLength === 'number') size = head.ContentLength;
+      } catch {
+        /* no crítico */
+      }
+
+      // Guardar/actualizar registro en BD
+      const creado = await this.createOrUpdateS3Record({
         codUsuario,
-      };
-      const creado = this.archivoRepo.create(nuevo);
-      const guardado = await this.archivoRepo.save(creado);
-      const downloadUrl = await this.obtenerUrlDescargaFirmada(fileId, codUsuario, drive);
+        bucket: this.bucket,
+        keyPath: Key,
+        nombreOriginal: Key.split('/').pop() ?? Key,
+        tipoContenido: mimeType,
+        tamanoBytes: size,
+        storageEtag: etag,
+      });
+
+      const downloadUrl = await this.obtenerUrlDescargaFirmada(Key);
+
       return {
-        action, // created | updated (aquí será created)
-        archivo: guardado,
+        action: 'created' as const,
+        archivo: creado,
         downloadUrl,
-        driveDebug: { parents: data.parents ?? [] },
+        s3: { bucket: this.bucket, key: Key, etag },
       };
+    } catch (e: any) {
+      // eslint-disable-next-line no-console
+      console.error('[S3Upload]', e);
+      throw new InternalServerErrorException('Fallo subiendo a S3/MinIO');
     }
-
-    // actualizar
-    entity.nombreOriginal = nombreDestino;
-    entity.tipoContenido = data.mimeType || mimeType;
-    entity.tamanoBytes = String(data.size ?? Number(entity.tamanoBytes ?? 0));
-
-    const guardado = await this.archivoRepo.save(entity);
-    const downloadUrl = await this.obtenerUrlDescargaFirmada(fileId, codUsuario, drive);
-    return {
-      action,
-      archivo: guardado,
-      downloadUrl,
-      driveDebug: { parents: data.parents ?? [] },
-    };
   }
 
-  // --------------------------- LISTAR (BD) ---------------------------
+  // ─────────────── LISTAR (BD) ───────────────
   async listar({ codUsuario, take, skip }: ListarArchivosParams) {
     if (codUsuario) await this.asegurarUsuario(codUsuario);
     const where = codUsuario ? { codUsuario } : {};
@@ -246,61 +214,170 @@ export class ArchivoService {
     return { total, rows };
   }
 
-  // --------------------------- LISTAR (Drive por tipo) ---------------------------
-  async listarPorTipoDrive(
+  // (opcional) listar directo en S3 por tipo → prefijo usuarios/{cod}/{tipo}/
+  async listarPorTipoS3(
     codUsuario: number,
     tipo: 'mantenimiento' | 'supervision',
-    pageToken?: string,
-    pageSize = 20,
+    continuationToken?: string,
+    pageSize = 50,
   ) {
     await this.asegurarUsuario(codUsuario);
-    const drive = await this.driveOAuth.getDrive(codUsuario);
-    const folderId = this.resolveParentByTipo(tipo);
+    const Prefix = `usuarios/${codUsuario}/${sanitizeSegment(tipo)}/`;
 
-    const { data } = await drive.files.list({
-      q: `'${folderId}' in parents and trashed=false`,
-      fields: 'files(id,name,mimeType,size,createdTime,webViewLink), nextPageToken',
-      pageSize,
-      pageToken,
-      orderBy: 'createdTime desc',
-    });
+    const resp = await this.s3.send(
+      new ListObjectsV2Command({
+        Bucket: this.bucket,
+        Prefix,
+        ContinuationToken: continuationToken,
+        MaxKeys: pageSize,
+      }),
+    );
 
     return {
-      files: data.files ?? [],
-      nextPageToken: data.nextPageToken ?? null,
-      folderId,
+      files: (resp.Contents ?? [])
+        .filter(x => !!x.Key && x.Key !== Prefix)
+        .map(x => ({
+          id: x.Key!,
+          name: x.Key!.split('/').pop()!,
+          mimeType: '', // no disponible en el listado
+          size: String(x.Size ?? 0),
+          createdTime: x.LastModified?.toISOString?.() ?? undefined,
+          webViewLink: undefined,
+        })),
+      nextPageToken: resp.IsTruncated ? resp.NextContinuationToken ?? null : null,
+      folderId: Prefix, // semántico
     };
   }
 
-  // --------------------------- ELIMINAR ---------------------------
-  async eliminarPorPath(path: string, codUsuario: number) {
-    const drive = await this.driveOAuth.getDrive(codUsuario);
-    try {
-      await drive.files.delete({ fileId: path });
-    } catch (e: any) {
-      if (e?.code === 404) throw new NotFoundException('Archivo no encontrado en Drive');
-      throw new InternalServerErrorException('Error eliminando en Drive');
+  // ─────────────── ELIMINAR ───────────────
+// ───────────────── eliminarPorPath: borra en S3 y en BD ─────────────────
+async eliminarPorPath(path: string, codUsuario: number) {
+  await this.asegurarUsuario(codUsuario);
+  const Key = normKey(path);
+
+  // 1) S3/MinIO — idempotente (si no existe, no debe romper)
+  try {
+    await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key }));
+  } catch (e: any) {
+    // Muchos S3 devuelven 204 aunque no exista; si MinIO devolviera error,
+    // sólo lo ignoramos si es claramente "not found".
+    const code = String(e?.name || e?.Code || e?.code || '');
+    if (!/NoSuchKey|NotFound/i.test(code)) {
+      // eslint-disable-next-line no-console
+      console.error('[S3Delete]', e);
+      throw new InternalServerErrorException('Error eliminando en S3/MinIO');
     }
-    const archivo = await this.archivoRepo.findOne({
-      where: { rutaArchivo: path, codUsuario } as any,
-    });
-    if (archivo) await this.archivoRepo.remove(archivo);
-    return { deleted: true };
   }
 
-  // --------------------------- NO SOPORTADOS ---------------------------
+  // 2) BD — borra por keyPath o rutaArchivo (legacy) en un solo roundtrip cada uno
+  const { affected: a1 } = await this.archivoRepo.delete({ keyPath: Key, codUsuario } as any);
+  const { affected: a2 } = await this.archivoRepo.delete({ rutaArchivo: Key, codUsuario } as any);
+
+  return { deleted: true, dbRemoved: (a1 ?? 0) + (a2 ?? 0) > 0 };
+}
+
+// ───────────────── removeByKey: sólo BD (sin tocar S3) ─────────────────
+async removeByKey(key: string, codUsuario?: number) {
+  const Key = normKey(key);
+
+  const whereA: any = codUsuario ? { keyPath: Key, codUsuario } : { keyPath: Key };
+  const whereB: any = codUsuario ? { rutaArchivo: Key, codUsuario } : { rutaArchivo: Key };
+
+  const r1 = await this.archivoRepo.delete(whereA);
+  const r2 = await this.archivoRepo.delete(whereB);
+
+  return { deleted: (r1.affected ?? 0) + (r2.affected ?? 0) > 0 };
+}
+
+
+  // ─────────────── URLS/confirmación ───────────────
   async obtenerUrlSubidaFirmada(
     _codUsuario: number,
     _nombreArchivo: string,
     _tipoContenido: string,
     _carpeta = 'docs',
   ) {
-    throw new BadRequestException(
-      'Subida directa no soportada con Google Drive. Usa POST /archivos/subir.',
-    );
+    // Si la app necesita presign de subida, úsalo desde UploadsService (/uploads/presign)
+    throw new BadRequestException('Para subida directa usa /uploads/presign.');
   }
 
-  async actualizarTamanoTrasSubida(_path: string) {
-    return { updated: false, size: 0 };
+  async actualizarTamanoTrasSubida(path: string) {
+    try {
+      const head = await this.s3.send(new HeadObjectCommand({ Bucket: this.bucket, Key: path }));
+      const size = Number(head.ContentLength ?? 0);
+      const etag = (head as any).ETag ?? null;
+
+      const rec =
+        (await this.archivoRepo.findOne({ where: { keyPath: path } as any })) ??
+        (await this.archivoRepo.findOne({ where: { rutaArchivo: path } as any }));
+      if (rec) {
+        rec.tamanoBytes = String(size);
+        (rec as any).storageEtag = etag;
+        await this.archivoRepo.save(rec);
+      }
+      return { updated: true, size };
+    } catch {
+      return { updated: false, size: 0 };
+    }
   }
+
+  // ─────────────── BD helpers (S3) ───────────────
+// src/modules/public/archivo/archivo.service.ts
+async createOrUpdateS3Record(p: {
+  codUsuario?: number | null;
+  bucket: string;
+  keyPath: string;
+  nombreOriginal: string;
+  tipoContenido: string;
+  tamanoBytes?: string | number;
+  storageEtag?: string | null;
+  area?: TipoArea | null;
+}) {
+  // 1) buscar por keyPath o (legacy) rutaArchivo
+  let rec: Archivo | null =
+    (await this.archivoRepo.findOne({ where: { keyPath: p.keyPath } as any })) ??
+    (await this.archivoRepo.findOne({ where: { rutaArchivo: p.keyPath } as any }));
+
+  // 2) resolver área
+  const inferArea = (): TipoArea | null => {
+    const k = (p.keyPath || '').toLowerCase();
+    if (k.includes('/mantenimiento/')) return 'mantenimiento';
+    if (k.includes('/supervision/'))   return 'supervision';
+    return null;
+  };
+  const areaFinal: TipoArea | null = p.area ?? inferArea();
+
+  // 3) crear o actualizar
+  if (!rec) {
+    const nuevo = this.archivoRepo.create({
+      codUsuario: p.codUsuario ?? null,
+      provider: 's3',
+      bucket: p.bucket,
+      keyPath: p.keyPath,
+      nombreOriginal: p.nombreOriginal,
+      tipoContenido: p.tipoContenido,
+      tamanoBytes: String(p.tamanoBytes ?? '0'),
+      storageEtag: p.storageEtag ?? null,
+      rutaArchivo: null,              // ← importante para no romper uk_ruta_archivo
+      fechaCreacion: new Date(),
+      area: areaFinal,
+    } as any);
+
+    return this.archivoRepo.save(nuevo);
+  }
+
+  // actualizar existente
+  rec.nombreOriginal = p.nombreOriginal;
+  rec.tipoContenido  = p.tipoContenido;
+  rec.tamanoBytes    = String(p.tamanoBytes ?? rec.tamanoBytes ?? '0');
+  (rec as any).storageEtag = p.storageEtag ?? (rec as any).storageEtag ?? null;
+
+  if (p.area != null || !rec.area) rec.area = areaFinal;
+  if (rec.provider === 's3' && (!rec.rutaArchivo || rec.rutaArchivo === '')) {
+    rec.rutaArchivo = null;
+  }
+
+  return this.archivoRepo.save(rec);
+}
+
 }
