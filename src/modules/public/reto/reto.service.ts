@@ -83,7 +83,7 @@ export class RetoService {
   // --------- Cron ----------
   private isBusinessDay(d: Date): boolean {
     const wd = d.getDay(); // 0 dom, 6 sab
-    if (wd === 0 || wd === 6) return false;
+    if (wd === 0) return false;
     return !this.hd.isHoliday(d);
   }
 

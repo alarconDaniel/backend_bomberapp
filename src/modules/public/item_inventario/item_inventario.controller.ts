@@ -83,7 +83,8 @@ function mapItemInventarioToResponse(row: any) {
       codItem: item?.codItem,
       nombre: item?.nombreItem,
       descripcion: item?.desripcionItem,
-      tipo: item?.tipoItem,  
+      tipo: item?.tipoItem,
+      icon: item?.iconoItem, 
     },
     usuario: {
       codUsuario: usuario?.codUsuario,

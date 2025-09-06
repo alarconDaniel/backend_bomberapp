@@ -1,11 +1,11 @@
+// src/modules/public/usuario-logro/usuario-logro.controller.ts
 import { Controller, Get, Query } from '@nestjs/common';
-
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 import { UsuarioLogroService } from './usuario-logro.service';
 
 @Controller('mis-logros')
 export class UsuarioLogroController {
-  constructor(private readonly svc: UsuarioLogroService) { }
+  constructor(private readonly svc: UsuarioLogroService) {}
 
   @Get('ultimos')
   async ultimos(@CurrentUser('id') codUsuario: number, @Query('limit') limit?: string) {

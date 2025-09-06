@@ -1,3 +1,4 @@
+// src/modules/public/usuario-logro/usuario-logro.service.ts
 import { Injectable } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { UsuarioLogro } from 'src/models/usuario-logro/usuario-logro';
@@ -20,7 +21,7 @@ export class UsuarioLogroService {
     return rows.map(r => ({
       codLogro: r.logro.codLogro,
       nombre: r.logro.nombreLogro,
-      icono: r.logro.iconoLogro,         // ruta (la devuelves como venga de la BD)
+      icono: r.logro.iconoLogro, // 👈 La ruta tal cual está en BD (convención)
       recompensa: r.logro.recompensaLogro,
     }));
   }
@@ -46,12 +47,11 @@ export class UsuarioLogroService {
         fechaObtencion: string | null;
       }>();
 
-
-    return rows.map((r) => ({
+    return rows.map(r => ({
       codLogro: r.codLogro,
       nombre: r.nombre,
       descripcion: r.descripcion,
-      icono: r.icono,
+      icono: r.icono,                  // 👈 igual: la convención/“ruta” de BD
       recompensa: r.recompensa,
       unlocked: !!r.fechaObtencion,
       fechaObtencion: r.fechaObtencion || null,

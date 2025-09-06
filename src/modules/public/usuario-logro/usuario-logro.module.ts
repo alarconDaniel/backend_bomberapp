@@ -1,3 +1,4 @@
+// src/modules/public/usuario-logro/usuario-logro.module.ts
 import { Module } from '@nestjs/common';
 import { UsuarioLogroController } from './usuario-logro.controller';
 import { UsuarioLogroService } from './usuario-logro.service';
