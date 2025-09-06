@@ -10,7 +10,6 @@ import { UsuarioModule } from '../usuario/usuario.module';
 @Module({
   imports: [
     ConexionModule,
-    ScheduleModule.forRoot(),
     UsuarioModule
   ],
   controllers: [RetoController],

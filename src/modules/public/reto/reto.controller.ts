@@ -33,11 +33,11 @@ export class RetoController {
     return this.retoService.verRetoFull(Number(cod));
   }
 
-    /**
-   * Calendario por día. Ej:
-   *   GET /reto/dia?fecha=2025-08-23&usuario=3
-   * Si tienes auth con JWT, toma el usuario del token y omite ?usuario
-   */
+  /**
+ * Calendario por día. Ej:
+ *   GET /reto/dia?fecha=2025-08-23&usuario=3
+ * Si tienes auth con JWT, toma el usuario del token y omite ?usuario
+ */
   @Get('dia')
   async listarPorDia(@Req() req: any, @Query('fecha') fecha?: string, @Query('usuario') usuario?: string) {
     const ymd = fecha || dayjs().format('YYYY-MM-DD');
@@ -105,6 +105,30 @@ export class RetoController {
     }
     return this.retoService.modificar(codReto, body);
   }
+
+  // Agregar en RetoController (solo si te sirve para QA)
+  @Get('cron/dry-run')
+  async dryRun(@Query('fecha') fecha?: string) {
+    const ymd = fecha || dayjs().format('YYYY-MM-DD');
+    const rows = await (this.retoService as any).ds.query(
+      `
+    SELECT u.cod_usuario, u.nombre_usuario, u.apellido_usuario, u.cod_cargo_usuario,
+           r.cod_reto, r.nombre_reto
+    FROM usuarios u
+    JOIN cargos_retos cr ON cr.cod_cargo_usuario = u.cod_cargo_usuario
+    JOIN retos r          ON r.cod_reto = cr.cod_reto
+    WHERE u.cod_rol = 2
+      AND r.es_automatico_reto = 1
+      AND r.activo = 1
+      AND r.fecha_inicio_reto <= ?
+      AND r.fecha_fin_reto   >= ?
+    ORDER BY u.cod_usuario, r.cod_reto
+    `,
+      [ymd, ymd],
+    );
+    return { fecha: ymd, candidatos: rows.length, rows };
+  }
+
 }
 
 // helpers/roles.ts
@@ -139,6 +163,8 @@ function checkAdminShape(user: any): boolean {
     }
   }
   return false;
+
+
 }
 
 /** Helper robusto: intenta con lo que venga en req.user; si no hay rol, usa loader(sub) */

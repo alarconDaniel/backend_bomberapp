@@ -20,6 +20,7 @@ import { UsuarioReto } from 'src/models/usuario-reto/usuario-reto';
 import { Usuario } from 'src/models/usuario/usuario';
 import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { CargoReto } from 'src/models/cargo-reto/cargo-reto';
 
 @Module({
   imports: [
@@ -36,7 +37,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
       entities: [
         Reto, ItemTienda, Usuario, Rol, TokenReinicioContrasena,
         UsuarioReto, CargoUsuario, EstadisticaUsuario, ItemInventario,
-        Logro, UsuarioLogro, Trofeo, AuditoriaTrofeo, Archivo, GoogleToken, RespuestaFormulario, RespuestaQuiz,
+        Logro, UsuarioLogro, Trofeo, AuditoriaTrofeo, Archivo, GoogleToken,
+        RespuestaFormulario, RespuestaQuiz, CargoReto
       ],
     }),
   ],

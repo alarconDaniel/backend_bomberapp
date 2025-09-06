@@ -34,12 +34,12 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
 
   // CORS para LAN/Expo/dev
-  app.enableCors({
-    origin: (_origin, cb) => cb(null, true),
-    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
-    credentials: true,
-  });
-  
+  // app.enableCors({
+  //   origin: (_origin, cb) => cb(null, true),
+  //   methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
+  //   credentials: true,
+  // });
+
   const puerto = Number(process.env.PUERTO_SERVIDOR)
 
   await app.listen(puerto, () => {
