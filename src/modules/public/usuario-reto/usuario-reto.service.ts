@@ -19,7 +19,6 @@ export class UsuarioRetoService {
     this.rfRepo = this.ds.getRepository(RespuestaFormulario);
   }
 
-  // 👇 Helper: trae la instancia activa de HOY para el (usuario, reto)
   private async getInstanciaActivaHoy(codUsuario: number, codReto: number) {
     const [row] = await this.ds.query(
       `
@@ -41,7 +40,6 @@ export class UsuarioRetoService {
 
     return row ?? null;
   }
-
 
   async listarDia(codUsuario: number, fecha?: string) {
     const today = dayjs().format('YYYY-MM-DD');
@@ -77,7 +75,6 @@ export class UsuarioRetoService {
   `, [codUsuario, ymd, ymd, ymd]);
     return rows;
   }
-
 
   async listarMisRetos(codUsuario: number, estado?: 'pendiente' | EstadoDB) {
     const qb = this.repo.createQueryBuilder('ur')
@@ -128,7 +125,6 @@ export class UsuarioRetoService {
     return { ok: true };
   }
 
-  // === resolución ===
   async abrirReto(codUsuario: number, codReto: number) {
     const ur = await this.getInstanciaActivaHoy(codUsuario, codReto);
     if (!ur) {
@@ -146,7 +142,6 @@ export class UsuarioRetoService {
     return { codUsuarioReto: ur.cod_usuario_reto, estado: 'en_progreso' as EstadoDB };
   }
 
-
   async responderQuiz(
     codUsuario: number,
     codUsuarioReto: number,
@@ -154,7 +149,6 @@ export class UsuarioRetoService {
     valor: any,
     tiempoSeg: number | null
   ) {
-    // 1) Cargar UR + reto + ventana vigente HOY y que pertenezca al usuario
     const [ur] = await this.ds.query(
       `
     SELECT ur.*, ur.cod_reto AS codReto
@@ -172,7 +166,6 @@ export class UsuarioRetoService {
     );
     if (!ur) throw new ForbiddenException('Instancia de reto no disponible para hoy');
 
-    // 2) Validar que la pregunta pertenece al reto de esa instancia
     const [p] = await this.ds.query(
       `SELECT p.cod_pregunta as codPregunta, p.tipo_pregunta as tipo, p.puntos_pregunta as puntos, p.cod_reto as codReto
      FROM preguntas p WHERE p.cod_pregunta = ?`,
@@ -183,46 +176,77 @@ export class UsuarioRetoService {
       throw new ForbiddenException('La pregunta no corresponde a este reto.');
     }
 
-    // 3) Corrección
-    let es_correcta: number | null = null;
+    let es_correcta_num: 0 | 1 | null = null;
     let puntaje: number | null = null;
+    let paresCorrectos: Array<{ a: number; b: number }> | undefined;
+
+    const norm = (s: any) => String(s ?? '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase().replace(/\s+/g, ' ').trim();
 
     if (p.tipo === 'abcd') {
       const correctas = await this.ds.query(
         `SELECT cod_opcion FROM opciones_abcd WHERE cod_pregunta=? AND validez_opcion=1`, [codPregunta]
       );
-      const setCorrectas = new Set(correctas.map((r: any) => r.cod_opcion));
+      const setCorrectas = new Set(correctas.map((r: any) => Number(r.cod_opcion)));
       const marcadas: number[] = Array.isArray(valor) ? valor : (valor?.abcd ?? []);
-      const ok = marcadas.length > 0 && marcadas.every((id: number) => setCorrectas.has(id)) && marcadas.length === setCorrectas.size;
-      es_correcta = ok ? 1 : 0; puntaje = ok ? p.puntos : 0;
+      const marcadasNums = (marcadas || []).map((n) => Number(n)).filter((n) => Number.isFinite(n));
+      const ok = marcadasNums.length > 0
+        && marcadasNums.every((id: number) => setCorrectas.has(id))
+        && marcadasNums.length === setCorrectas.size;
+      es_correcta_num = ok ? 1 : 0;
+      puntaje = ok ? p.puntos : 0;
+
     } else if (p.tipo === 'rellenar') {
-      const [row] = await this.ds.query(`SELECT respuesta_correcta as rc FROM preguntas_rellenar WHERE cod_pregunta=?`, [codPregunta]);
-      const txt = String(valor?.rellenar ?? valor ?? '').trim().toLowerCase();
-      const rc = String(row?.rc ?? '').trim().toLowerCase();
-      es_correcta = (txt && rc && txt === rc) ? 1 : 0; puntaje = es_correcta ? p.puntos : 0;
+      const [row] = await this.ds.query(
+        `SELECT respuesta_correcta as rc FROM preguntas_rellenar WHERE cod_pregunta=?`,
+        [codPregunta]
+      );
+      const txt = norm(valor?.rellenar ?? valor);
+      const rc = norm(row?.rc);
+      const ok = !!txt && !!rc && txt === rc;
+      es_correcta_num = ok ? 1 : 0;
+      puntaje = ok ? p.puntos : 0;
+
     } else if (p.tipo === 'emparejar') {
-      const correctas = await this.ds.query(`SELECT cod_item_A as a, cod_item_B as b FROM parejas_correctas WHERE cod_pregunta=?`, [codPregunta]);
-      const esperado = new Set(correctas.map((x: any) => `${x.a}-${x.b}`));
-      const pares: [number, number][] = valor?.emparejar ?? [];
-      const hits = pares.filter(([a, b]) => esperado.has(`${a}-${b}`)).length;
-      es_correcta = (hits === esperado.size) ? 1 : 0;
-      puntaje = Math.round((hits / Math.max(1, esperado.size)) * p.puntos);
+      const correctas = await this.ds.query(
+        `SELECT cod_item_A as a, cod_item_B as b FROM parejas_correctas WHERE cod_pregunta=?`,
+        [codPregunta]
+      );
+      const esperado = new Set(correctas.map((x: any) => `${Number(x.a)}-${Number(x.b)}`));
+      const pares: any[] = valor?.emparejar ?? [];
+      const paresNums: Array<[number, number]> = (Array.isArray(pares) ? pares : [])
+        .map((par: any) => {
+          const [a, b] = Array.isArray(par) ? par : [null, null];
+          const an = Number(a), bn = Number(b);
+          return [an, bn] as [number, number];
+        })
+        .filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b));
+
+      const paresStr = paresNums.map(([a, b]) => `${a}-${b}`);
+      const hits = paresStr.filter((s) => esperado.has(s)).length;
+      paresCorrectos = paresNums.filter(([a, b]) => esperado.has(`${a}-${b}`)).map(([a, b]) => ({ a, b }));
+
+      const ok = (hits === esperado.size) && esperado.size > 0;
+      es_correcta_num = ok ? 1 : 0;
+      puntaje = ok ? p.puntos : 0;
+
     } else {
-      es_correcta = null; puntaje = null;
+      es_correcta_num = null;
+      puntaje = null;
     }
 
     await this.rqRepo.save(this.rqRepo.create({
       codUsuarioReto, codPregunta, tiempoSeg, valorJson: valor ?? null,
-      esCorrecta: es_correcta, puntaje
+      esCorrecta: es_correcta_num, puntaje
     }));
 
-    return { ok: true, esCorrecta: es_correcta, puntaje };
+    const esCorrectaBool = (es_correcta_num === 1);
+    return { ok: true, esCorrecta: esCorrectaBool, puntaje, ...(paresCorrectos ? { paresCorrectos } : {}) };
   }
-
 
   async enviarFormulario(codUsuario: number, codUsuarioReto: number, codReto: number, data: any) {
     return this.ds.transaction(async (trx) => {
-      // 1) Validar instancia activa HOY
       const [ur] = await trx.query(
         `
       SELECT ur.*
@@ -241,7 +265,6 @@ export class UsuarioRetoService {
       );
       if (!ur) throw new ForbiddenException('No puedes enviar este formulario (fuera de ventana o no asignado).');
 
-      // 2) Upsert del snapshot del form
       const exists = await this.rfRepo.findOne({ where: { codUsuarioReto, codReto } });
       if (exists) {
         exists.data = data;
@@ -253,7 +276,6 @@ export class UsuarioRetoService {
         );
       }
 
-      // 3) Completar reto
       await trx
         .createQueryBuilder()
         .update(UsuarioReto)
@@ -265,34 +287,39 @@ export class UsuarioRetoService {
         .where('codUsuarioReto = :id', { id: codUsuarioReto })
         .execute();
 
-      // 4) Recompensas
+      /* ================================
+         ⬇️ NUEVO CÁLCULO DE RECOMPENSAS
+         ================================ */
       const [{ sumPuntaje }] = await trx.query(
         `SELECT COALESCE(SUM(puntaje),0) AS sumPuntaje
-       FROM respuestas_preguntas_usuario WHERE cod_usuario_reto=?`,
+         FROM respuestas_preguntas_usuario WHERE cod_usuario_reto=?`,
         [codUsuarioReto],
       );
-      const bonus = 50 + Number(sumPuntaje || 0);
-      const coins = Math.round(bonus / 2);
+      let total = Number(sumPuntaje || 0); // XP base = suma de puntos correctos
+      // x2 si se usó en este UR
+      const [{ usedX2 }] = await trx.query(
+        `SELECT COUNT(*) AS usedX2 FROM usos_comodines WHERE cod_usuario_reto=? AND tipo='double'`,
+        [codUsuarioReto]
+      );
+      if (Number(usedX2 || 0) > 0) {
+        total = total * 2;
+      }
 
       await trx.query(
         `UPDATE estadisticas_usuarios
-       SET xp_estadistica = xp_estadistica + ?, monedas_estadistica = monedas_estadistica + ?
-       WHERE cod_usuario = ?`,
-        [bonus, coins, codUsuario],
+         SET xp_estadistica = xp_estadistica + ?, monedas_estadistica = monedas_estadistica + ?
+         WHERE cod_usuario = ?`,
+        [total, total, codUsuario],
       );
 
-      // 5) 🔥 Racha
       const rachaInfo = await this.actualizarRachaTrasCompletar(trx, codUsuario);
 
-      return { ok: true, completado: true, codUsuarioReto, xpGanada: bonus, coins, ...(rachaInfo.saltado ? {} : { nuevaRacha: rachaInfo.nuevaRacha }) };
+      return { ok: true, completado: true, codUsuarioReto, xpGanada: total, coins: total, ...(rachaInfo.saltado ? {} : { nuevaRacha: rachaInfo.nuevaRacha }) };
     });
   }
 
-
-
   async finalizar(codUsuario: number, codUsuarioReto: number) {
     return this.ds.transaction(async (trx) => {
-      // 1) Validar instancia activa HOY
       const [ur] = await trx.query(
         `
       SELECT ur.*
@@ -310,7 +337,6 @@ export class UsuarioRetoService {
       );
       if (!ur) throw new ForbiddenException('No puedes finalizar este reto (no activo hoy).');
 
-      // 2) Marcar como completado
       await trx
         .createQueryBuilder()
         .update(UsuarioReto)
@@ -322,33 +348,166 @@ export class UsuarioRetoService {
         .where('codUsuarioReto = :id', { id: codUsuarioReto })
         .execute();
 
-      // 3) Recompensas
+      /* ================================
+         ⬇️ NUEVO CÁLCULO DE RECOMPENSAS
+         ================================ */
       const [{ sumPuntaje }] = await trx.query(
         `SELECT COALESCE(SUM(puntaje),0) AS sumPuntaje
-       FROM respuestas_preguntas_usuario WHERE cod_usuario_reto=?`,
+         FROM respuestas_preguntas_usuario WHERE cod_usuario_reto=?`,
         [codUsuarioReto],
       );
-      const bonus = 50 + Number(sumPuntaje || 0);
-      const coins = Math.round(bonus / 2);
+      let total = Number(sumPuntaje || 0); // XP base = suma de puntos correctos
+      // x2 si se usó en este UR
+      const [{ usedX2 }] = await trx.query(
+        `SELECT COUNT(*) AS usedX2 FROM usos_comodines WHERE cod_usuario_reto=? AND tipo='double'`,
+        [codUsuarioReto]
+      );
+      if (Number(usedX2 || 0) > 0) {
+        total = total * 2;
+      }
 
       await trx.query(
         `UPDATE estadisticas_usuarios
-       SET xp_estadistica = xp_estadistica + ?, monedas_estadistica = monedas_estadistica + ?
-       WHERE cod_usuario = ?`,
-        [bonus, coins, codUsuario],
+         SET xp_estadistica = xp_estadistica + ?, monedas_estadistica = monedas_estadistica + ?
+         WHERE cod_usuario = ?`,
+        [total, total, codUsuario],
       );
 
-      // 4) 🔥 Racha
       const rachaInfo = await this.actualizarRachaTrasCompletar(trx, codUsuario);
 
-      return { ok: true, xpGanada: bonus, coins, ...(rachaInfo.saltado ? {} : { nuevaRacha: rachaInfo.nuevaRacha }) };
+      return { ok: true, xpGanada: total, coins: total, ...(rachaInfo.saltado ? {} : { nuevaRacha: rachaInfo.nuevaRacha }) };
     });
   }
 
+  async usarComodin(
+    codUsuario: number,
+    codUsuarioReto: number,
+    body: {
+      codPregunta: number | null;
+      tipo: '50/50' | 'mas_tiempo' | 'protector_racha' | 'double' | 'ave_fenix';
+      segundos?: number;
+      hasta?: string;
+    }
+  ) {
+    const tipo = this.normalizarTipo(body.tipo as any);
 
-  // 👇 Añadir dentro de UsuarioRetoService
+    const [ur] = await this.ds.query(
+      `
+      SELECT ur.*
+      FROM usuarios_retos ur
+      WHERE ur.cod_usuario_reto = ?
+        AND ur.cod_usuario = ?
+        AND ur.estado IN ('asignado','en_progreso')
+        AND (
+              (ur.fecha_objetivo IS NOT NULL AND ur.fecha_objetivo = CURDATE())
+           OR (ur.ventana_inicio IS NOT NULL AND ur.ventana_fin IS NOT NULL
+               AND ur.ventana_inicio <= CURDATE() AND ur.ventana_fin >= CURDATE())
+        )
+      LIMIT 1
+      `,
+      [codUsuarioReto, codUsuario]
+    );
+    if (!ur) throw new ForbiddenException('No puedes usar comodines en esta instancia.');
+
+    if (tipo === 'double') {
+      const [{ cnt }] = await this.ds.query(
+        `SELECT COUNT(*) AS cnt FROM usos_comodines WHERE cod_usuario_reto = ? AND tipo='double'`,
+        [codUsuarioReto]
+      );
+      if (Number(cnt || 0) > 0) {
+        throw new BadRequestException('El comodín x2 ya fue usado en este quiz.');
+      }
+    }
+
+    return await this.ds.transaction(async (trx) => {
+      const patterns = this.aliasPatterns(tipo);
+      let invRow: any = null;
+
+      for (const pat of patterns) {
+        const [row] = await trx.query(
+          `
+  SELECT ii.cod_item_inventario AS codInv,
+         ii.cantidad_item,
+         it.cod_item AS codItem,
+         it.nombre_item AS nombre,
+         it.tipo_item AS tipo
+  FROM items_inventario ii
+  JOIN items_tienda it ON it.cod_item = ii.cod_item
+  WHERE ii.cod_usuario = ?
+    AND UPPER(it.tipo_item) = 'POTENCIADOR'
+    AND LOWER(it.nombre_item) LIKE ?
+    AND ii.cantidad_item > 0
+  ORDER BY ii.cantidad_item DESC
+  LIMIT 1
+  FOR UPDATE
+  `,
+          [codUsuario, pat]
+        );
+        if (row && Number(row.cantidad_item) > 0) {
+          invRow = row;
+          break;
+        }
+      }
+
+      if (!invRow) {
+        throw new BadRequestException('No tienes este comodín en tu inventario.');
+      }
+
+      await trx.query(
+        `UPDATE items_inventario SET cantidad_item = cantidad_item - 1 WHERE cod_item_inventario = ? AND cantidad_item > 0`,
+        [invRow.codInv]
+      );
+
+      const payload: any = {};
+      if (body.segundos != null) payload.segundos = Math.max(1, Math.floor(Number(body.segundos) || 0));
+      if (body.hasta) payload.hasta = String(body.hasta);
+
+      await trx.query(
+        `INSERT INTO usos_comodines (cod_usuario_reto, cod_usuario, tipo, payload)
+         VALUES (?, ?, ?, ?)`,
+        [codUsuarioReto, codUsuario, tipo, Object.keys(payload).length ? JSON.stringify(payload) : null]
+      );
+
+      return {
+        ok: true,
+        codUsuarioReto,
+        usado: { tipo, codPregunta: body.codPregunta ?? null },
+        inventario: {
+          codItemInventario: invRow.codInv,
+          restante: Math.max(0, Number(invRow.cantidad_item) - 1)
+        }
+      };
+    });
+  }
+
+  private normalizarTipo(input: string): '50/50' | 'mas_tiempo' | 'protector_racha' | 'double' | 'ave_fenix' {
+    const s = String(input || '').trim().toLowerCase();
+    if (['50/50', '5050', 'fifty', 'fifty-fifty', 'fifty_fifty', 'cincuenta', 'cincuenta-cincuenta'].includes(s)) return '50/50';
+    if (['mas_tiempo', 'más_tiempo', 'mas-tiempo', 'tiempo_extra', 'tiempo', 'extra', '+5s', '+15s', 'mas tiempo', 'más tiempo'].includes(s)) return 'mas_tiempo';
+    if (['protector_racha', 'escudo_racha', 'escudo', 'racha', 'shield', 'streak_shield'].includes(s)) return 'protector_racha';
+    if (['double', 'x2', 'doble', '2x'].includes(s)) return 'double';
+    if (['ave_fenix', 'fenix', 'fénix', 'phoenix'].includes(s)) return 'ave_fenix';
+    throw new BadRequestException('Tipo de comodín no válido');
+  }
+
+  private aliasPatterns(tipo: '50/50' | 'mas_tiempo' | 'protector_racha' | 'double' | 'ave_fenix'): string[] {
+    switch (tipo) {
+      case '50/50':
+        return ['%50/50%', '%fifty%'].map(s => s.toLowerCase());
+      case 'mas_tiempo':
+        return ['%15s%', '%tiempo%', '%extra%', '%+15%'].map(s => s.toLowerCase());
+      case 'protector_racha':
+        return ['%racha%', '%shield%', '%escudo%'].map(s => s.toLowerCase());
+      case 'double':
+        return ['%x2%', '%doble%', '%double%'].map(s => s.toLowerCase());
+      case 'ave_fenix':
+        return ['%fenix%', '%fénix%', '%phoenix%'].map(s => s.toLowerCase());
+      default:
+        return ['%'];
+    }
+  }
+
   private async actualizarRachaTrasCompletar(manager: DataSource | { query: Function }, codUsuario: number) {
-    // 1) ¿Cuántos completados tiene HOY este usuario (incluido el que acabamos de marcar)?
     const [{ cnt: completadosHoyStr }] = await (manager as any).query(
       `
     SELECT COUNT(*) AS cnt
@@ -361,19 +520,16 @@ export class UsuarioRetoService {
     );
     const completadosHoy = Number(completadosHoyStr || 0);
 
-    // Si ya había completado algo hoy (cont > 1), no subimos racha de nuevo
     if (completadosHoy > 1) {
       return { saltado: true };
     }
 
-    // 2) Bloqueamos la fila de estadísticas para lectura/actualización consistente
     const [est] = await (manager as any).query(
       `SELECT racha_estadistica AS racha FROM estadisticas_usuarios WHERE cod_usuario = ? FOR UPDATE`,
       [codUsuario],
     );
     const rachaActual = Number(est?.racha || 0);
 
-    // 3) ¿Hubo completados AYER?
     const [{ lastDay }] = await (manager as any).query(
       `
     SELECT DATE(MAX(fecha_complecion)) AS lastDay
@@ -384,7 +540,6 @@ export class UsuarioRetoService {
     `,
       [codUsuario],
     );
-    // Comparamos con AYER en el timezone de MySQL (usa CURDATE())
     const [{ isYesterday }] = await (manager as any).query(
       `
     SELECT (CASE WHEN ? = DATE_SUB(CURDATE(), INTERVAL 1 DAY) THEN 1 ELSE 0 END) AS isYesterday
@@ -407,9 +562,57 @@ export class UsuarioRetoService {
       [nuevaRacha, mejorRacha, codUsuario],
     );
 
-
     return { saltado: false, nuevaRacha };
   }
 
+  async preguntasDeUsuarioReto(codUsuario: number, codUsuarioReto: number) {
+    const [ur] = await this.ds.query(
+      `SELECT ur.cod_usuario_reto, ur.cod_usuario, ur.cod_reto
+       FROM usuarios_retos ur
+       WHERE ur.cod_usuario_reto=? AND ur.cod_usuario=?`,
+      [codUsuarioReto, codUsuario]
+    );
+    if (!ur) throw new ForbiddenException('No tienes acceso a este reto.');
 
+    const preguntas = await this.ds.query(
+      `SELECT p.cod_pregunta   AS codPregunta,
+              p.numero_pregunta AS numero,
+              p.enunciado_pregunta AS enunciado,
+              p.tipo_pregunta   AS tipo,
+              p.tiempo_max_pregunta AS tiempoMax,
+              p.puntos_pregunta AS puntos
+       FROM preguntas p
+       WHERE p.cod_reto = ?
+       ORDER BY p.numero_pregunta ASC`,
+      [ur.cod_reto]
+    );
+
+    for (const q of preguntas) {
+      if (q.tipo === 'abcd') {
+        const ops = await this.ds.query(
+          `SELECT cod_opcion AS codOpcion,
+                  texto_opcion AS texto,
+                  validez_opcion AS correcta
+           FROM opciones_abcd
+           WHERE cod_pregunta=? 
+           ORDER BY cod_opcion ASC`,
+          [q.codPregunta]
+        );
+        q.opciones = ops;
+      } else if (q.tipo === 'emparejar') {
+        const items = await this.ds.query(
+          `SELECT cod_item AS codItem, lado, contenido
+           FROM items_emparejamiento
+           WHERE cod_pregunta=?
+           ORDER BY cod_item ASC`,
+          [q.codPregunta]
+        );
+        const A = items.filter((r: any) => r.lado === 'A').map((r: any) => ({ codItem: r.codItem, contenido: r.contenido }));
+        const B = items.filter((r: any) => r.lado === 'B').map((r: any) => ({ codItem: r.codItem, contenido: r.contenido }));
+        q.emparejar = { A, B };
+      }
+    }
+
+    return preguntas;
+  }
 }

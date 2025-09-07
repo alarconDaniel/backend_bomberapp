@@ -9,13 +9,10 @@ import { DataSource, Repository } from 'typeorm';
 import * as argon2 from 'argon2';
 import { Usuario } from 'src/models/usuario/usuario';
 
-// 👇 importa los DTOs
 import { CrearUsuarioDto } from 'src/modules/public/usuario/dto/crear-usuario.dto';
 import { ModificarUsuarioDto } from 'src/modules/public/usuario/dto/modificar-usuario.dto';
 import { CargoUsuario } from 'src/models/cargo_usuario/cargo-usuario';
-import { InjectRepository } from '@nestjs/typeorm';
 
-// DTO que devolvemos al cliente (sin password ni refresh)
 type UsuarioListDTO = {
   codUsuario: number;
   codRol: number;
@@ -30,22 +27,18 @@ type UsuarioListDTO = {
 
 @Injectable()
 export class UsuarioService {
-
-    
   private readonly repo: Repository<Usuario>;
   private readonly cargosRepo: Repository<CargoUsuario>;
 
   constructor(private readonly ds: DataSource) {
-    this.cargosRepo = ds.getRepository(CargoUsuario)
+    this.cargosRepo = ds.getRepository(CargoUsuario);
     this.repo = ds.getRepository(Usuario);
   }
-
-
 
   private toDTO(u: Usuario): UsuarioListDTO {
     return {
       codUsuario: u.codUsuario,
-      codRol: u.codRol, // @RelationId en la entidad
+      codRol: u.codRol,
       codCargoUsuario: u.codCargoUsuario ?? null,
       nombreUsuario: u.nombreUsuario,
       apellidoUsuario: u.apellidoUsuario,
@@ -57,20 +50,12 @@ export class UsuarioService {
   }
 
   async listarUsuarios(): Promise<UsuarioListDTO[]> {
-    const rows = await this.repo.find({
-      loadEagerRelations: false,
-      relations: {},
-      order: { codUsuario: 'ASC' },
-    });
+    const rows = await this.repo.find({ loadEagerRelations: false, relations: {}, order: { codUsuario: 'ASC' } });
     return rows.map((u) => this.toDTO(u));
   }
 
   async buscarUsuario(codUsuario: number): Promise<UsuarioListDTO> {
-    const u = await this.repo.findOne({
-      where: { codUsuario },
-      loadEagerRelations: false,
-      relations: {},
-    });
+    const u = await this.repo.findOne({ where: { codUsuario }, loadEagerRelations: false, relations: {} });
     if (!u) throw new NotFoundException('Usuario no encontrado');
     return this.toDTO(u);
   }
@@ -100,14 +85,11 @@ export class UsuarioService {
 
       const correo = body.correoUsuario.trim().toLowerCase();
 
-      const ya = await this.repo.findOne({
-        where: { correoUsuario: correo },
-        select: ['codUsuario'] as any,
-      });
+      const ya = await this.repo.findOne({ where: { correoUsuario: correo }, select: ['codUsuario'] as any });
       if (ya) throw new ConflictException('Correo ya registrado (duplicado)');
 
-      // Si quieres hash real, descomenta esta línea:
-      // const passHash = await argon2.hash(body.contrasenaUsuario);
+      // ✅ SIEMPRE hash
+      const passHash = await argon2.hash(body.contrasenaUsuario);
 
       const entity = this.repo.create({
         nombreUsuario: body.nombreUsuario,
@@ -115,11 +97,9 @@ export class UsuarioService {
         cedulaUsuario: body.cedulaUsuario,
         nicknameUsuario: body.nicknameUsuario?.trim() ?? null,
         correoUsuario: correo,
-        contrasenaUsuario: body.contrasenaUsuario, // o passHash
+        contrasenaUsuario: passHash,
         refreshTokenHash: null,
         tokenVersion: 0,
-
-        // ✅ relaciones por FK
         rol: { codRol: Number(body.codRol) } as any,
         cargo:
           body.codCargoUsuario != null
@@ -139,27 +119,18 @@ export class UsuarioService {
     }
   }
 
-  // ================== MODIFICAR ==================
+  // ================== MODIFICAR (GENÉRICO) ==================
   async modificarUsuario(obj: ModificarUsuarioDto): Promise<UsuarioListDTO> {
     if (!obj.codUsuario)
       throw new HttpException('codUsuario es requerido', HttpStatus.BAD_REQUEST);
 
-    const current = await this.repo.findOne({
-      where: { codUsuario: obj.codUsuario },
-      loadEagerRelations: false,
-      relations: {},
-    });
+    const current = await this.repo.findOne({ where: { codUsuario: obj.codUsuario }, loadEagerRelations: false, relations: {} });
     if (!current) throw new NotFoundException('Usuario no encontrado');
 
-    const nextCorreo = obj.correoUsuario
-      ? obj.correoUsuario.trim().toLowerCase()
-      : undefined;
+    const nextCorreo = obj.correoUsuario ? obj.correoUsuario.trim().toLowerCase() : undefined;
 
     if (nextCorreo && nextCorreo !== current.correoUsuario) {
-      const yaExiste = await this.repo.findOne({
-        where: { correoUsuario: nextCorreo },
-        select: ['codUsuario'] as any,
-      });
+      const yaExiste = await this.repo.findOne({ where: { correoUsuario: nextCorreo }, select: ['codUsuario'] as any });
       if (yaExiste && yaExiste.codUsuario !== current.codUsuario)
         throw new ConflictException('Correo ya registrado (duplicado)');
     }
@@ -169,19 +140,13 @@ export class UsuarioService {
       apellidoUsuario: obj.apellidoUsuario ?? current.apellidoUsuario,
       cedulaUsuario: obj.cedulaUsuario ?? current.cedulaUsuario,
       nicknameUsuario:
-        obj.nicknameUsuario !== undefined
-          ? obj.nicknameUsuario?.trim() ?? null
-          : current.nicknameUsuario,
+        obj.nicknameUsuario !== undefined ? obj.nicknameUsuario?.trim() ?? null : current.nicknameUsuario,
       correoUsuario: nextCorreo ?? current.correoUsuario,
       contrasenaUsuario: obj.contrasenaUsuario ?? current.contrasenaUsuario,
       refreshTokenHash: current.refreshTokenHash,
       tokenVersion:
         obj.tokenVersion !== undefined ? obj.tokenVersion : current.tokenVersion,
-
-      ...(obj.codRol
-        ? { rol: { codRol: Number(obj.codRol) } as any }
-        : {}),
-
+      ...(obj.codRol ? { rol: { codRol: Number(obj.codRol) } as any } : {}),
       ...(obj.codCargoUsuario !== undefined
         ? {
             cargo:
@@ -204,6 +169,43 @@ export class UsuarioService {
         throw new HttpException('Rol/Cargo inválido (violación de FK)', HttpStatus.BAD_REQUEST);
       throw new HttpException('No se actualiza', HttpStatus.BAD_REQUEST);
     }
+  }
+
+  // ================== MODIFICAR (YO MISMO) ==================
+  async updateSelf(
+    codUsuario: number,
+    obj: {
+      nombreUsuario: string;
+      apellidoUsuario: string;
+      correoUsuario: string;
+      cedulaUsuario: string;
+      nicknameUsuario?: string | null;
+    },
+  ): Promise<UsuarioListDTO> {
+    const current = await this.repo.findOne({ where: { codUsuario } });
+    if (!current) throw new NotFoundException('Usuario no encontrado');
+
+    const correo = obj.correoUsuario.trim().toLowerCase();
+    if (correo !== current.correoUsuario) {
+      const ya = await this.repo.findOne({ where: { correoUsuario: correo }, select: ['codUsuario'] as any });
+      if (ya && ya.codUsuario !== codUsuario) {
+        throw new ConflictException('Correo ya registrado (duplicado)');
+      }
+    }
+
+    const updates: Partial<Usuario> = {
+      nombreUsuario: obj.nombreUsuario.trim(),
+      apellidoUsuario: obj.apellidoUsuario.trim(),
+      correoUsuario: correo,
+      cedulaUsuario: obj.cedulaUsuario.trim(),
+      nicknameUsuario: obj.nicknameUsuario !== undefined
+        ? (obj.nicknameUsuario?.trim() || null)
+        : current.nicknameUsuario,
+    };
+
+    const merged = this.repo.merge(current, updates);
+    const saved = await this.repo.save(merged);
+    return this.toDTO(saved);
   }
 
   // ================== BORRAR ==================
@@ -242,11 +244,23 @@ export class UsuarioService {
     return this.findById(codUsuario);
   }
 
+  // ✅ changePassword compatible con sistemas viejos (plain) y nuevos (argon2)
   async changePassword(codUsuario: number, current: string, next: string) {
     const user = await this.findById(codUsuario);
     if (!user) throw new NotFoundException('Usuario no encontrado');
-    const ok = await argon2.verify(user.contrasenaUsuario, current);
-    if (!ok) throw new HttpException('Contraseña actual incorrecta', HttpStatus.BAD_REQUEST);
+
+    let matches = false;
+    try {
+      matches = await argon2.verify(user.contrasenaUsuario, current);
+    } catch {
+      // si el valor guardado no es un hash válido, probamos igualdad directa (legado)
+      matches = user.contrasenaUsuario === current;
+    }
+
+    if (!matches) {
+      throw new HttpException('Contraseña actual incorrecta', HttpStatus.BAD_REQUEST);
+    }
+
     const newHash = await argon2.hash(next);
     await this.updatePasswordHash(codUsuario, newHash);
     await this.incrementTokenVersion(codUsuario);
