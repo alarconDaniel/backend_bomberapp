@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import { UsuarioLogroService } from '../usuario-logro/usuario-logro.service';
 import { UpdateNicknameDto } from './dto/update-nickname.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
 
 @Controller('mi-perfil')
 export class PerfilController {
@@ -62,6 +63,14 @@ export class PerfilController {
       },
       logros: ultimos,
     };
+  }
+
+  @Patch('datos')
+  async updateMyData(
+    @CurrentUser('id') codUsuario: number,
+    @Body() dto: UpdateMyProfileDto,
+  ) {
+    return this.usuarios.updateSelf(codUsuario, dto);
   }
 
   @Patch('nickname')

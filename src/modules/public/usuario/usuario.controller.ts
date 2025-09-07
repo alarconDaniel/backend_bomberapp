@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Put, Delete,
-  Param, Body, ParseIntPipe, UseGuards, Req
+  Param, Body, ParseIntPipe, UseGuards, Req, HttpException, HttpStatus
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
@@ -41,7 +41,15 @@ export class UsuarioController {
   }
 
   @Delete('borrar/:codUsuario')
-  borrarUsuario(@Param('codUsuario', ParseIntPipe) codUsuario: number) {
+  borrarUsuario(
+    @Param('codUsuario', ParseIntPipe) codUsuario: number,
+    @Req() req: Request,
+  ) {
+    const currentUserId = Number((req as any)?.user?.sub);
+    if (Number.isFinite(currentUserId) && currentUserId === codUsuario) {
+      // ⛔ Seguridad server-side: jamás permitir borrarse a sí mismo
+      throw new HttpException('No puedes eliminar tu propio usuario', HttpStatus.FORBIDDEN);
+    }
     return this.usuarioService.borrarUsuario(codUsuario);
   }
 }
