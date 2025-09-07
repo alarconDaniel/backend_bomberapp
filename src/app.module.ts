@@ -15,7 +15,6 @@ import { EstadisticaUsuarioModule } from './modules/public/estadistica-usuario/e
 import { ItemInventarioModule } from './modules/public/item_inventario/item_inventario.module';
 import { LogroModule } from './modules/public/logro/logro.module';
 import { UsuarioLogroModule } from './modules/public/usuario-logro/usuario-logro.module';
-
 import { PerfilModule } from './modules/public/perfil/perfil.module';
 import { TrofeoModule } from './modules/public/trofeo/trofeo.module';
 import { RankingModule } from './modules/public/ranking/ranking.module';
@@ -46,7 +45,7 @@ import { UploadsModule } from './modules/public/uploads/uploads.module';
   controllers: [AppController],
   providers: [
     AppService,
-    { provide: APP_GUARD, useClass: JwtAuthGuard }, // <-- TODAS las rutas protegidas salvo @Public()
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
 })
-export class AppModule { }
+export class AppModule {}

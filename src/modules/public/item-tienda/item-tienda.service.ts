@@ -105,6 +105,7 @@ export class ItemTiendaService {
         // Si tu tabla tiene columna JSON 'metadata_item', pásala:
         // metadataItem: (it as any).metadataItem ?? null,
         yaPosee: setPoseidos.has(it.codItem),
+        iconoPath: it.iconoItem,
       }));
 
     return {

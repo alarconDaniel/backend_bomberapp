@@ -22,6 +22,8 @@ export class ItemTienda {
     // @Column({ name: "metadata_item" })
     // metadataItem: JSON;
 
+    @Column({name: "icono_item"})
+    iconoItem:string;
 
     @OneToMany(() => ItemInventario, (ii) => ii.item)
     itemsInventario: ItemInventario[];
