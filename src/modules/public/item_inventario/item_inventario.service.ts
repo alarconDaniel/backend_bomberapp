@@ -39,155 +39,185 @@ export class ItemInventarioService {
   }
 
   // ==========================
-  // ===  NUEVO: ABRIR COFRE ==
+  // ===    ABRIR COFRE     ===
   // ==========================
   public async abrirCofre(codUsuario: number, codItemInventario: number) {
     if (!codUsuario) throw new ForbiddenException('Usuario no autenticado');
 
-    const qr = this.poolConexion.createQueryRunner();
-    await qr.connect();
-    await qr.startTransaction();
-    try {
-      const invRepo = qr.manager.getRepository(ItemInventario);
-      const tiendaRepo = qr.manager.getRepository(ItemTienda);
+    const intento = async () => {
+      const qr = this.poolConexion.createQueryRunner();
+      await qr.connect();
+      await qr.startTransaction();
+      try {
+        const invRepo = qr.manager.getRepository(ItemInventario);
+        const tiendaRepo = qr.manager.getRepository(ItemTienda);
 
-      // 1) Trae el item inventario con relaciones
-      const inv = await invRepo.findOne({
-        where: { codItemInventario, usuario: { codUsuario } },
-        relations: ['usuario', 'item'],
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!inv) throw new NotFoundException('El ítem no existe o no es tuyo');
+        // 1) Trae el item inventario con lock
+        const inv = await invRepo.findOne({
+          where: { codItemInventario, usuario: { codUsuario } },
+          relations: ['usuario', 'item'],
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!inv) throw new NotFoundException('El ítem no existe o no es tuyo');
 
-      const item = inv.item;
-      if (!item) throw new InternalServerErrorException('Item de tienda faltante');
-      if (String(item.tipoItem).toUpperCase() !== 'COFRE') {
-        throw new BadRequestException('Este ítem no es un cofre');
-      }
-      if (inv.cantidad <= 0) {
-        throw new BadRequestException('No te quedan cofres de este tipo');
-      }
-
-      // 2) Determina tamaño => cantidad de drops
-      const size = this.detectChestSize(item);
-      const count = size === 'pequeno' ? 1 : size === 'medio' ? 5 : 10;
-
-      // 3) Arma el pool de loot (sin cofres)
-      const pool = await tiendaRepo.find();
-      const elegibles = pool.filter((p) => String(p.tipoItem).toUpperCase() !== 'COFRE');
-      if (elegibles.length === 0) {
-        throw new InternalServerErrorException('No hay recompensas elegibles');
-      }
-
-      // Inventario actual del user para evitar ropa duplicada
-      const invUser = await invRepo.find({
-        where: { usuario: { codUsuario } },
-        relations: ['item'],
-      });
-      const yaPosee = new Set<number>(
-        invUser.map(i => i.item?.codItem).filter(Boolean) as number[]
-      );
-
-      // 4) Genera recompensas
-      type Drop = { codItem: number; nombre: string; tipo: string; cantidad: number };
-      const rewards: Drop[] = [];
-      const MAX_REINTENTOS_ROPA = 6;
-
-      for (let k = 0; k < count; k++) {
-        // preferimos potenciadores para evitar atorar por ropa duplicada
-        let drop: ItemTienda | null = null;
-        let intentos = 0;
-
-        while (intentos < MAX_REINTENTOS_ROPA) {
-          const idx = randomInt(0, elegibles.length); // [0, len)
-          const candidato = elegibles[idx];
-          const isRopa = String(candidato.tipoItem).toUpperCase() === 'ROPA';
-          if (isRopa && yaPosee.has(candidato.codItem)) {
-            intentos++;
-            continue; // reintenta
-          }
-          drop = candidato;
-          break;
+        const item = inv.item;
+        if (!item) throw new InternalServerErrorException('Item de tienda faltante');
+        if (String(item.tipoItem).toUpperCase() !== 'COFRE') {
+          throw new BadRequestException('Este ítem no es un cofre');
+        }
+        if (inv.cantidad <= 0) {
+          throw new BadRequestException('No te quedan cofres de este tipo');
         }
 
-        // Si no logró una ropa válida, fuerza un potenciador
-        if (!drop) {
-          const soloPotenciadores = elegibles.filter(e => String(e.tipoItem).toUpperCase() === 'POTENCIADOR');
-          if (soloPotenciadores.length === 0) {
-            // Si ni potenciador hay, ya qué: da cualquiera que no sea cofre
-            drop = elegibles[randomInt(0, elegibles.length)];
+        // 2) Determina tamaño => cantidad de drops
+        const size = this.detectChestSize(item);
+        const count = size === 'pequeno' ? 1 : size === 'medio' ? 5 : 10;
+
+        // 3) Arma el pool de loot (sin cofres)
+        const pool = await tiendaRepo.find();
+        const elegibles = pool.filter((p) => String(p.tipoItem).toUpperCase() !== 'COFRE');
+        if (elegibles.length === 0) {
+          throw new InternalServerErrorException('No hay recompensas elegibles');
+        }
+
+        // Inventario actual del user para evitar ropa duplicada
+        const invUser = await invRepo.find({
+          where: { usuario: { codUsuario } },
+          relations: ['item'],
+          lock: { mode: 'pessimistic_read' }, // lectura consistente
+        });
+        const yaPosee = new Set<number>(
+          invUser.map(i => i.item?.codItem).filter(Boolean) as number[]
+        );
+
+        type Drop = { codItem: number; nombre: string; tipo: string; cantidad: number };
+
+        // 4) Genera recompensas (puede producir repetidos en memoria)
+        const rawRewards: Drop[] = [];
+        const MAX_REINTENTOS_ROPA = 6;
+
+        for (let k = 0; k < count; k++) {
+          let drop: ItemTienda | null = null;
+          let intentos = 0;
+
+          while (intentos < MAX_REINTENTOS_ROPA) {
+            const idx = randomInt(0, elegibles.length);
+            const candidato = elegibles[idx];
+            const isRopa = String(candidato.tipoItem).toUpperCase() === 'ROPA';
+            if (isRopa && yaPosee.has(candidato.codItem)) {
+              intentos++;
+              continue;
+            }
+            drop = candidato;
+            break;
+          }
+
+          // fallback a potenciadores si no se consiguió ropa no repetida
+          if (!drop) {
+            const soloPotenciadores = elegibles.filter(e => String(e.tipoItem).toUpperCase() === 'POTENCIADOR');
+            drop = soloPotenciadores.length > 0
+              ? soloPotenciadores[randomInt(0, soloPotenciadores.length)]
+              : elegibles[randomInt(0, elegibles.length)];
+          }
+
+          rawRewards.push({
+            codItem: drop.codItem,
+            nombre: drop.nombreItem,
+            tipo: String(drop.tipoItem).toUpperCase(),
+            cantidad: 1,
+          });
+
+          if (String(drop.tipoItem).toUpperCase() === 'ROPA') {
+            yaPosee.add(drop.codItem);
+          }
+        }
+
+        // 🔴 5) FUSIÓN EN MEMORIA para evitar duplicidad en el mismo cofre
+        const rewardsMap = new Map<number, Drop>();
+        for (const r of rawRewards) {
+          const prev = rewardsMap.get(r.codItem);
+          if (prev) {
+            prev.cantidad += r.cantidad;
           } else {
-            drop = soloPotenciadores[randomInt(0, soloPotenciadores.length)];
+            // copia defensiva
+            rewardsMap.set(r.codItem, { ...r });
           }
         }
+        const rewards = Array.from(rewardsMap.values()); // ya sin duplicados
 
-        // Empaqueta resultado
-        rewards.push({
-          codItem: drop.codItem,
-          nombre: drop.nombreItem,
-          tipo: String(drop.tipoItem).toUpperCase(),
-          cantidad: 1,
+        // 6) Aplica cambios en BD dentro de la misma transacción
+        //    - Descontar 1 cofre (ya en lock write)
+        inv.cantidad = inv.cantidad - 1;
+        await invRepo.save(inv);
+
+        //    - Upsert manual por lotes: primero leer existentes de estos cods
+        const cods = rewards.map(r => r.codItem);
+        const existentes = await invRepo.find({
+          where: {
+            usuario: { codUsuario },
+            item: { codItem: In(cods) },
+          },
+          relations: ['item', 'usuario'],
+          lock: { mode: 'pessimistic_write' },
         });
 
-        // Marca ropa como "poseída" para siguientes iteraciones del mismo cofre
-        if (String(drop.tipoItem).toUpperCase() === 'ROPA') {
-          yaPosee.add(drop.codItem);
+        const existingByItem = new Map<number, ItemInventario>();
+        for (const row of existentes) {
+          existingByItem.set(row.item.codItem, row);
         }
-      }
 
-      // 5) Aplica cambios en BD:
-      //   - Descontar 1 cofre
-      inv.cantidad = inv.cantidad - 1;
-      await invRepo.save(inv);
+        const toUpdate: ItemInventario[] = [];
+        const toCreate: ItemInventario[] = [];
 
-      //   - Upsert de recompensas
-      //     (repetidos de potenciadores se suman)
-      const cods = rewards.map(r => r.codItem);
-      const existentes = await invRepo.find({
-        where: {
-          usuario: { codUsuario },
-          item: { codItem: In(cods) },
-        },
-        relations: ['item', 'usuario'],
-        lock: { mode: 'pessimistic_write' },
-      });
-
-      // Mapa para actualizar en lote
-      const byItemId = new Map<number, ItemInventario>();
-      existentes.forEach(row => byItemId.set(row.item.codItem, row));
-
-      for (const r of rewards) {
-        const ya = byItemId.get(r.codItem);
-        if (ya) {
-          ya.cantidad = ya.cantidad + r.cantidad;
-          await invRepo.save(ya);
-        } else {
-          const nuevo = invRepo.create({
-            usuario: { codUsuario } as any,
-            item: { codItem: r.codItem } as any,
-            cantidad: r.cantidad,
-          });
-          await invRepo.save(nuevo);
+        for (const r of rewards) {
+          const ya = existingByItem.get(r.codItem);
+          if (ya) {
+            ya.cantidad = ya.cantidad + r.cantidad;
+            toUpdate.push(ya);
+          } else {
+            const nuevo = invRepo.create({
+              usuario: { codUsuario } as any,
+              item: { codItem: r.codItem } as any,
+              cantidad: r.cantidad,
+            });
+            toCreate.push(nuevo);
+          }
         }
+
+        if (toCreate.length > 0) await invRepo.save(toCreate);
+        if (toUpdate.length > 0) await invRepo.save(toUpdate);
+
+        await qr.commitTransaction();
+
+        // 7) Respuesta **ya fusionada**, nada de “x1, x1” repetidos
+        return {
+          ok: true,
+          chest: {
+            codItemInventario,
+            size,
+            remaining: inv.cantidad,
+            item: { codItem: item.codItem, nombre: item.nombreItem },
+          },
+          rewards, // ya viene fusionado, ej. [{codItem:123, cantidad:2}, ...]
+        };
+      } catch (e: any) {
+        try { await qr.rollbackTransaction(); } catch {}
+        throw e;
+      } finally {
+        try { await qr.release(); } catch {}
       }
+    };
 
-      await qr.commitTransaction();
-
-      return {
-        ok: true,
-        chest: {
-          codItemInventario,
-          size,
-          remaining: inv.cantidad,
-          item: { codItem: item.codItem, nombre: item.nombreItem },
-        },
-        rewards,
-      };
-    } catch (e) {
-      await qr.rollbackTransaction();
+    // Reintento suave si la BD grita por índice único (carrera)
+    try {
+      return await intento();
+    } catch (e: any) {
+      // MySQL duplicate key
+      if (e?.errno === 1062 || e?.code === 'ER_DUP_ENTRY') {
+        // Intento una vez más: leerá el existente y sumará
+        return await intento();
+      }
       throw e;
-    } finally {
-      await qr.release();
     }
   }
 
