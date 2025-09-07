@@ -278,15 +278,21 @@ async eliminarPorPath(path: string, codUsuario: number) {
 
 // ───────────────── removeByKey: sólo BD (sin tocar S3) ─────────────────
 async removeByKey(key: string, codUsuario?: number) {
+  const normKey = (k: string) => (k || '').replace(/^\/+/, '');
   const Key = normKey(key);
+  const Alt = decodeURIComponent(Key);
 
   const whereA: any = codUsuario ? { keyPath: Key, codUsuario } : { keyPath: Key };
   const whereB: any = codUsuario ? { rutaArchivo: Key, codUsuario } : { rutaArchivo: Key };
+  const whereC: any = codUsuario ? { keyPath: Alt, codUsuario } : { keyPath: Alt };
+  const whereD: any = codUsuario ? { rutaArchivo: Alt, codUsuario } : { rutaArchivo: Alt };
 
   const r1 = await this.archivoRepo.delete(whereA);
   const r2 = await this.archivoRepo.delete(whereB);
+  const r3 = Key === Alt ? { affected: 0 } : await this.archivoRepo.delete(whereC);
+  const r4 = Key === Alt ? { affected: 0 } : await this.archivoRepo.delete(whereD);
 
-  return { deleted: (r1.affected ?? 0) + (r2.affected ?? 0) > 0 };
+  return { deleted: (r1.affected ?? 0) + (r2.affected ?? 0) + (r3.affected ?? 0) + (r4.affected ?? 0) > 0 };
 }
 
 

@@ -5,6 +5,7 @@ import {
   ListObjectsV2Command, DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { Readable } from 'stream';
 
 export type TipoArea = 'mantenimiento' | 'supervision';
 
@@ -47,10 +48,21 @@ export class UploadsService {
     this.publicBase = process.env.S3_PUBLIC_BASE;
   }
 
+
+  private slugForS3(name: string) {
+    // Normaliza a ASCII: quita diacríticos y colapsa espacios / símbolos problemáticos
+    return name
+      .normalize('NFKD')                // separa letras + diacríticos
+      .replace(/[\u0300-\u036f]/g, '')  // quita diacríticos
+      .replace(/[^\w.\-()+]/g, '_')     // deja letras/números/._-()+
+      .replace(/_+/g, '_')              // colapsa múltiples _
+      .slice(0, 180);                   // margen por si agregas timestamp y carpetas
+  }
+
   private buildUserKey(codUsuario: number, filename: string, tipo?: TipoArea) {
-    const safe = filename.replace(/[/\\]/g, '_');
+    const safeBase = this.slugForS3(filename || 'archivo');
     const areaSeg = tipo ? `/${tipo}` : '';
-    return `usuarios/${codUsuario}${areaSeg}/${Date.now()}-${safe}`;
+    return `usuarios/${codUsuario}${areaSeg}/${Date.now()}-${safeBase}`;
   }
 
   async createSignedUploadUrl({ filename, contentType, codUsuario, tipo }: PresignArgs) {
@@ -102,5 +114,22 @@ export class UploadsService {
   async deleteObject(key: string) {
     await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
     return { deleted: true, key };
+  }
+
+  async getObjectRaw(key: string): Promise<{
+    body: Readable;
+    contentType?: string;
+    contentLength?: number;
+    etag?: string | null;
+  }> {
+    const cmd = new GetObjectCommand({ Bucket: this.bucket, Key: key });
+    const data = await this.s3.send(cmd);
+    const body = data.Body as unknown as Readable;
+    return {
+      body,
+      contentType: data.ContentType,
+      contentLength: typeof data.ContentLength === 'number' ? data.ContentLength : undefined,
+      etag: (data as any).ETag ?? null,
+    };
   }
 }
