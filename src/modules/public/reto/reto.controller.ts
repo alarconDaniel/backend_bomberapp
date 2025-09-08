@@ -1,45 +1,56 @@
-
+// reto.controller.ts
 import {
   Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put,
-  UseGuards, Req, ForbiddenException, BadRequestException,
-  Query,
+  UseGuards, Req, ForbiddenException, BadRequestException, Query,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
-import { RetoService } from './reto.service';
 import * as dayjs from 'dayjs';
+
+import { RetoService } from './reto.service';
 import { UsuarioService } from 'src/modules/public/usuario/usuario.service';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('reto')
 export class RetoController {
-  
-  constructor(private readonly retoService: RetoService,
-    private readonly usuarioService: UsuarioService, 
+  constructor(
+    private readonly retoService: RetoService,
+    private readonly usuarioService: UsuarioService,
   ) {}
 
+  /** DTO compacto (para selects/listas) */
+  @Get('listar-dto')
+  listar() {
+    return this.retoService.listar();
+  }
+
+  /** RAW find() (compatibilidad) */
   @Get('listar')
   listarRetos() {
     return this.retoService.listarRetos();
   }
 
   @Get('ver/:cod')
-  verReto(@Param('cod') cod: string) {
-    return this.retoService.verReto(Number(cod));
+  verReto(@Param('cod', ParseIntPipe) cod: number) {
+    return this.retoService.verReto(cod);
   }
 
   @Get('ver/full/:cod')
-  async verRetoFull(@Param('cod') cod: string) {
-    return this.retoService.verRetoFull(Number(cod));
+  async verRetoFull(@Param('cod', ParseIntPipe) cod: number) {
+    return this.retoService.verRetoFull(cod);
   }
 
   /**
- * Calendario por día. Ej:
- *   GET /reto/dia?fecha=2025-08-23&usuario=3
- * Si tienes auth con JWT, toma el usuario del token y omite ?usuario
- */
+   * Calendario por día (asignaciones del usuario).
+   * GET /reto/dia?fecha=YYYY-MM-DD&usuario=ID
+   * Si hay JWT, toma usuario del token y puedes omitir ?usuario
+   */
   @Get('dia')
-  async listarPorDia(@Req() req: any, @Query('fecha') fecha?: string, @Query('usuario') usuario?: string) {
+  async listarPorDia(
+    @Req() req: any,
+    @Query('fecha') fecha?: string,
+    @Query('usuario') usuario?: string,
+  ) {
     const ymd = fecha || dayjs().format('YYYY-MM-DD');
     const uid = Number(usuario ?? req?.user?.sub);
     if (!uid) throw new BadRequestException('Falta usuario');
@@ -48,6 +59,37 @@ export class RetoController {
       throw new BadRequestException('No puedes ver días futuros');
     }
     return this.retoService.listarPorDia(uid, ymd);
+  }
+
+  /**
+   * Agregado/progreso de retos del día para HomeScreen
+   * GET /reto/progreso-dia?fecha=YYYY-MM-DD[&usuario=ID]
+   */
+  @Get('progreso-dia')
+  async progresoDia(
+    @Req() req: any,
+    @Query('fecha') fecha?: string,
+    @Query('usuario') usuario?: string,
+  ) {
+    const ymd = fecha || dayjs().format('YYYY-MM-DD');
+    const uid = usuario ? Number(usuario) : Number(req?.user?.sub ?? -1);
+    return this.retoService.progresoDia(ymd, Number.isFinite(uid) ? uid : undefined);
+  }
+
+  /**
+   * OPERARIOS del día (HomeScreen → tabla Operarios)
+   * GET /reto/operarios-dia?fecha=YYYY-MM-DD
+   */
+  @Get('operarios-dia')
+  async operariosDia(@Query('fecha') fecha?: string) {
+    const ymd = fecha || dayjs().format('YYYY-MM-DD');
+    return this.retoService.operariosStatsDia(ymd);
+  }
+
+  /** Total de operarios (cod_rol = 2) */
+  @Get('operarios-count')
+  operariosCount() {
+    return this.retoService.contarOperarios();
   }
 
   // ==== utilidades para pruebas de cron (opcionales) ====
@@ -63,42 +105,40 @@ export class RetoController {
     return this.retoService.marcarVencidos(ymd);
   }
 
-
-  @Get('listar')
-  listar() {
-    return this.retoService.listar();
-  }
-
   @Get(':codReto')
   detalle(@Param('codReto', ParseIntPipe) codReto: number) {
     return this.retoService.detalle(codReto);
   }
 
-    //Admin
-    @Post('crear')
-    async crear(@Req() req: Request, @Body() body: any) {
-      const u = (req as any).user;
-      const ok = await isAdmin(u, (sub) => this.usuarioService.findById(sub));
-      if (!ok) throw new ForbiddenException('Solo admin puede crear retos');
-      if ('codReto' in body) delete body.codReto;
-      return this.retoService.crear(body);
-    }
-
-    @Delete('borrar/:codReto')
-    async borrar(@Req() req: Request, @Param('codReto', ParseIntPipe) codReto: number) {
-      const u = (req as any).user;
-      const ok = await isAdmin(u, (sub) => this.usuarioService.findById(sub)); // ✅
-      if (!ok) throw new ForbiddenException('Solo admin puede borrar retos');
-      return this.retoService.borrar(codReto);
-    }
-
-  // 🔧 NUEVO: modificar (PUT /reto/modificar) con codReto en el body
-  @Put('modificar')
-  async modificar(@Req() req: Request, @Body() body: any) { // ✅ async
+  // -------- Crear reto genérico (NO toca tablas de preguntas) --------
+  @Post('crear')
+  async crear(@Req() req: Request, @Body() body: any) {
     const u = (req as any).user;
-    const ok = await isAdmin(u, (sub) => this.usuarioService.findById(sub)); // ✅
+    const ok = await isAdmin(u, (sub) => this.usuarioService.findById(sub));
+    if (!ok) throw new ForbiddenException('Solo admin puede crear retos');
+    if ('codReto' in body) delete body.codReto;
+    return this.retoService.crear(body);
+  }
+
+  // -------- Crear QUIZ con estructura completa --------
+  // (normaliza payload por si el front manda JSON como string en FormData)
+  @Post('crear-quiz')
+  async crearQuiz(@Req() req: Request, @Body() body: any) {
+    const u = (req as any).user;
+    const ok = await isAdmin(u, (sub) => this.usuarioService.findById(sub));
+    if (!ok) throw new ForbiddenException('Solo admin puede crear retos');
+
+    const payload = normalizeQuizPayload(body);
+    return this.retoService.crearQuiz(payload);
+  }
+
+  // Modificar reto
+  @Put('modificar')
+  async modificar(@Req() req: Request, @Body() body: any) {
+    const u = (req as any).user;
+    const ok = await isAdmin(u, (sub) => this.usuarioService.findById(sub));
     if (!ok) throw new ForbiddenException('Solo admin puede modificar retos');
-  
+
     const codReto = Number(body?.codReto ?? body?.cod_reto);
     if (!Number.isFinite(codReto)) {
       throw new BadRequestException('codReto es requerido y debe ser numérico');
@@ -106,33 +146,61 @@ export class RetoController {
     return this.retoService.modificar(codReto, body);
   }
 
-  // Agregar en RetoController (solo si te sirve para QA)
+  @Delete('borrar/:codReto')
+  async borrar(@Req() req: Request, @Param('codReto', ParseIntPipe) codReto: number) {
+    const u = (req as any).user;
+    const ok = await isAdmin(u, (sub) => this.usuarioService.findById(sub));
+    if (!ok) throw new ForbiddenException('Solo admin puede borrar retos');
+    return this.retoService.borrar(codReto);
+  }
+
+  // QA: ver candidatos del cron según fecha
   @Get('cron/dry-run')
   async dryRun(@Query('fecha') fecha?: string) {
     const ymd = fecha || dayjs().format('YYYY-MM-DD');
     const rows = await (this.retoService as any).ds.query(
       `
-    SELECT u.cod_usuario, u.nombre_usuario, u.apellido_usuario, u.cod_cargo_usuario,
-           r.cod_reto, r.nombre_reto
-    FROM usuarios u
-    JOIN cargos_retos cr ON cr.cod_cargo_usuario = u.cod_cargo_usuario
-    JOIN retos r          ON r.cod_reto = cr.cod_reto
-    WHERE u.cod_rol = 2
-      AND r.es_automatico_reto = 1
-      AND r.activo = 1
-      AND r.fecha_inicio_reto <= ?
-      AND r.fecha_fin_reto   >= ?
-    ORDER BY u.cod_usuario, r.cod_reto
-    `,
+      SELECT u.cod_usuario, u.nombre_usuario, u.apellido_usuario, u.cod_cargo_usuario,
+             r.cod_reto, r.nombre_reto
+      FROM usuarios u
+      JOIN cargos_retos cr ON cr.cod_cargo_usuario = u.cod_cargo_usuario
+      JOIN retos r          ON r.cod_reto = cr.cod_reto
+      WHERE u.cod_rol = 2
+        AND r.es_automatico_reto = 1
+        AND r.activo = 1
+        AND r.fecha_inicio_reto <= ?
+        AND r.fecha_fin_reto   >= ?
+      ORDER BY u.cod_usuario, r.cod_reto
+      `,
       [ymd, ymd],
     );
     return { fecha: ymd, candidatos: rows.length, rows };
   }
-
 }
 
-// helpers/roles.ts
-/** Reusa tu lógica, pero en una función pura */
+/* ===================== helpers ===================== */
+function parseMaybeJson<T = any>(v: any): T {
+  if (typeof v === 'string') {
+    try { return JSON.parse(v) as T; } catch { /* ignore */ }
+  }
+  return v as T;
+}
+
+/** Normaliza body para /crear-quiz (por si viene FormData con strings). */
+function normalizeQuizPayload(body: any) {
+  const out: any = { ...body };
+  if (out.tipoReto == null && out.tipo != null) out.tipoReto = out.tipo;
+
+  out.quiz = parseMaybeJson(out.quiz);
+  if (out.preguntas == null && out?.quiz?.preguntas != null) {
+    out.preguntas = out.quiz.preguntas;
+  }
+  out.preguntas = parseMaybeJson(out.preguntas);
+  if (!Array.isArray(out.preguntas)) out.preguntas = [];
+  return out;
+}
+
+// ===== helpers/roles.ts =====
 function checkAdminShape(user: any): boolean {
   if (!user) return false;
   const flat = [
@@ -163,14 +231,11 @@ function checkAdminShape(user: any): boolean {
     }
   }
   return false;
-
-
 }
 
-/** Helper robusto: intenta con lo que venga en req.user; si no hay rol, usa loader(sub) */
 export async function isAdmin(
   user: any,
-  loader?: (sub: number) => Promise<any>,   // p.ej. usuarioService.findById
+  loader?: (sub: number) => Promise<any>,
 ): Promise<boolean> {
   if (checkAdminShape(user)) return true;
 
@@ -182,21 +247,16 @@ export async function isAdmin(
 
       const merged = {
         ...user,
-        // objetos de rol
         rol: full.rol ?? full.role ?? full?.Rol ?? full?.perfil,
         role: full.role ?? full.rol ?? full?.Rol ?? full?.perfil,
-        // colecciones
         roles: full.roles ?? full?.Roles ?? [],
-        // ids / códigos
         rolId:
           full.rolId ?? full.roleId ?? full.codRol ?? full.cod_rol ??
           full.idRol ?? full.id_rol ?? full?.rol?.id ?? full?.rol?.codRol ?? full?.rol?.cod_rol,
-        // nombres
         nombreRol:
           full.nombreRol ?? full.nombre_rol ??
           full?.rol?.nombre ?? full?.rol?.nombre_rol ??
           full?.role?.name ?? full?.role?.nombre,
-        // flags
         isAdmin: normalizeBool(full.isAdmin ?? full.is_admin),
         codRol: full.codRol,
         cod_rol: full.cod_rol,
@@ -204,7 +264,7 @@ export async function isAdmin(
 
       return checkAdminShape(merged);
     } catch {
-      return false; // si el loader falla (DB down, etc.), no reventamos
+      return false;
     }
   }
   return false;
@@ -219,4 +279,3 @@ function normalizeBool(v: any): boolean | undefined {
   if (!Number.isNaN(n)) return n === 1;
   return undefined;
 }
-
