@@ -175,6 +175,13 @@ export class RetoController {
     return { fecha: ymd, candidatos: rows.length, rows };
   }
 
+// Dentro de RetoController
+@Get(':cod/cargos')
+async cargosDeReto(@Param('cod', ParseIntPipe) cod: number) {
+  return this.retoService.cargosDeReto(cod);
+}
+
+
   @Put('quiz/sobrescribir')
   async sobrescribirQuiz(@Body() body: any) {
     const codReto = Number(body?.codReto ?? body?.cod_reto);
