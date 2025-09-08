@@ -1,5 +1,10 @@
+
 // src/models/reto/reto.ts
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
+import { Pregunta } from '../pregunta/pregunta';
+import { RespuestaFormularioUsuario } from './../respuesta/RespuestaFormularioUsuario';
+import { UsuarioReto } from './../usuario-reto/usuario-reto';
+
 
 export type TipoReto = 'quiz' | 'form' | 'archivo';
 
@@ -39,4 +44,18 @@ export class Reto {
 
   @Column({ name: 'activo', type: 'tinyint', default: () => '1' })
   activo!: number;
+
+  
+  /** 1:N con Pregunta (retos.cod_reto ← preguntas.cod_reto) */
+  @OneToMany(() => Pregunta, (p) => p.reto)
+  preguntas!: Pregunta[];
+
+  /** 1:N con UsuarioReto (retos.cod_reto ← usuarios_retos.cod_reto) */
+  @OneToMany(() => UsuarioReto, (ur) => ur.reto)
+  usuariosRetos!: UsuarioReto[];
+
+  /** 1:N con RespuestaFormularioUsuario (retos.cod_reto ← respuestas_formulario_usuario.cod_reto) */
+  @OneToMany(() => RespuestaFormularioUsuario, (rf) => rf.reto)
+  respuestasForm!: RespuestaFormularioUsuario[];
 }
+

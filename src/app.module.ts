@@ -21,6 +21,8 @@ import { RankingModule } from './modules/public/ranking/ranking.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ArchivoModule } from './modules/public/archivo/archivo.module';
 import { UploadsModule } from './modules/public/uploads/uploads.module';
+import { PreguntasModule } from './modules/public/pregunta/preguntas.module';
+import { RespuestasModule } from './modules/public/respuesta/respuestas.module';
 
 @Module({
   imports: [
@@ -40,6 +42,8 @@ import { UploadsModule } from './modules/public/uploads/uploads.module';
     RankingModule,
     ArchivoModule,
     UploadsModule,
+    PreguntasModule,
+    RespuestasModule,
     ScheduleModule.forRoot(), // 👈 habilita cron jobs
   ],
   controllers: [AppController],

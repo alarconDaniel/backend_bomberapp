@@ -1,3 +1,5 @@
+import { PreguntaReporte } from './../../models/pregunta/PreguntaReporte';
+import { ItemEmparejamiento } from './../../models/pregunta/ItemEmparejamiento';
 import 'dotenv/config'; 
 
 import { Archivo } from './../../models/archivo/archivo';
@@ -20,6 +22,13 @@ import { Usuario } from 'src/models/usuario/usuario';
 import { SnakeNamingStrategy } from 'typeorm-naming-strategies';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CargoReto } from 'src/models/cargo-reto/cargo-reto';
+import { Pregunta } from 'src/models/pregunta/pregunta';
+import { RespuestaPreguntaUsuario } from 'src/models/respuesta/RespuestaPreguntaUsuario';
+import { ParejaCorrecta } from 'src/models/pregunta/ParejaCorrecta';
+import { OpcionABCD } from 'src/models/pregunta/OpcionABCD';
+import { PreguntaRellenar } from 'src/models/pregunta/PreguntaRellenar';
+import { ReporteCargado } from 'src/models/pregunta/ReporteCargado';
+import { RespuestaFormularioUsuario } from 'src/models/respuesta/RespuestaFormularioUsuario';
 
 @Module({
   imports: [
@@ -37,7 +46,9 @@ import { CargoReto } from 'src/models/cargo-reto/cargo-reto';
         Reto, ItemTienda, Usuario, Rol, TokenReinicioContrasena,
         UsuarioReto, CargoUsuario, EstadisticaUsuario, ItemInventario,
         Logro, UsuarioLogro, Trofeo, AuditoriaTrofeo, Archivo,
-        RespuestaFormulario, RespuestaQuiz, CargoReto
+        RespuestaFormulario, RespuestaQuiz, CargoReto,Pregunta,RespuestaFormularioUsuario,
+        RespuestaPreguntaUsuario,ParejaCorrecta,OpcionABCD,ItemEmparejamiento,PreguntaRellenar,
+        PreguntaReporte,ReporteCargado
       ],
     }),
   ],
