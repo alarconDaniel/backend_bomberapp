@@ -1,4 +1,3 @@
-// reto.service.ts
 import { Injectable, NotFoundException, HttpException, HttpStatus, BadRequestException } from '@nestjs/common';
 import { DataSource, Repository } from 'typeorm';
 import { Reto } from 'src/models/reto/reto';
@@ -21,10 +20,12 @@ type ProgresoDiaItem = {
   completados: number;
   total: number;
   pct: number;
-  tipo: 'quiz' | 'form' | 'checklist';
-  icon: string; // Ionicons o emoji
+  tipo: 'quiz' | 'form' | 'archivo';
+  icon: string;
   mi?: { asignado: boolean; completado: boolean; enProgreso: boolean };
 };
+
+
 
 @Injectable()
 export class RetoService {
@@ -37,8 +38,8 @@ export class RetoService {
 
   constructor(public readonly ds: DataSource) {
     this.retoRepo = ds.getRepository(Reto);
-    this.repo     = ds.getRepository(Reto);
-    this.urRepo   = ds.getRepository<UsuarioReto>(UsuarioReto);
+    this.repo = ds.getRepository(Reto);
+    this.urRepo = ds.getRepository<UsuarioReto>(UsuarioReto);
     this.hd = new Holidays('CO');
   }
 
@@ -148,7 +149,7 @@ export class RetoService {
       const total = Number(r.total ?? 0);
       const comp = Number(r.completados ?? 0);
       const pct = total > 0 ? Math.round((comp / total) * 100) : 0;
-      const tipo = String(r?.tipoReto ?? 'form').toLowerCase() as 'quiz' | 'form' | 'checklist';
+      const tipo = String(r?.tipoReto ?? 'form').toLowerCase() as 'quiz' | 'form' | 'archivo';
       const meta = safeParseJson(r?.metadataReto);
       return {
         codReto: Number(r.codReto),
@@ -228,61 +229,58 @@ export class RetoService {
     fechaFinReto: (r as any).fechaFinReto ?? null,
   });
 
-  /** Devuelve el reto con estructura completa (quiz/form/checklist). */
+  /** Devuelve el reto con estructura completa (quiz/form/archivo). */
   public async verRetoFull(codReto: number) {
-    const r = await this.retoRepo.findOne({ where: { codReto } });
-    if (!r) throw new NotFoundException('Reto no encontrado');
+  const r = await this.retoRepo.findOne({ where: { codReto } });
+  if (!r) throw new NotFoundException('Reto no encontrado');
 
-    if (r.tipoReto === 'quiz') {
-      const preguntas = await this.ds.query(
-        `
-        SELECT p.cod_pregunta as codPregunta, p.numero_pregunta as numero,
-               p.enunciado_pregunta as enunciado, p.tipo_pregunta as tipo,
-               p.puntos_pregunta as puntos, p.tiempo_max_pregunta as tiempoMax
-        FROM preguntas p WHERE p.cod_reto = ? ORDER BY p.numero_pregunta ASC
-        `,
-        [codReto],
-      );
+  if (r.tipoReto === 'quiz') {
+    const preguntas = await this.ds.query(
+      `
+      SELECT p.cod_pregunta as codPregunta, p.numero_pregunta as numero,
+             p.enunciado_pregunta as enunciado, p.tipo_pregunta as tipo,
+             p.puntos_pregunta as puntos, p.tiempo_max_pregunta as tiempoMax
+      FROM preguntas p
+      WHERE p.cod_reto = ? AND p.numero_pregunta > 0
+      ORDER BY p.numero_pregunta ASC
+      `,
+      [codReto],
+    );
 
-      for (const q of preguntas) {
-        if (q.tipo === 'abcd') {
-          q.opciones = await this.ds.query(
-            `SELECT cod_opcion as codOpcion, texto_opcion as texto, validez_opcion as correcta
-             FROM opciones_abcd WHERE cod_pregunta=? ORDER BY cod_opcion ASC`,
-            [q.codPregunta],
-          );
-        }
-        if (q.tipo === 'rellenar') {
-          const [row] = await this.ds.query(
-            `SELECT respuesta_correcta as correcta FROM preguntas_rellenar WHERE cod_pregunta=?`,
-            [q.codPregunta],
-          );
-          q.correcta = row?.correcta ?? null;
-        }
-        if (q.tipo === 'emparejar') {
-          q.items = await this.ds.query(
-            `SELECT cod_item as codItem, lado, contenido FROM items_emparejamiento WHERE cod_pregunta=? ORDER BY cod_item ASC`,
-            [q.codPregunta],
-          );
-          q.parejas = await this.ds.query(
-            `SELECT cod_item_A as a, cod_item_B as b FROM parejas_correctas WHERE cod_pregunta=?`,
-            [q.codPregunta],
-          );
-        }
-        if (q.tipo === 'reporte') {
-          const [row] = await this.ds.query(
-            `SELECT instrucciones_pregunta as instrucciones, tipo_archivo_permitido as tipos FROM preguntas_reporte WHERE cod_pregunta=?`,
-            [q.codPregunta],
-          );
-          q.reporte = row ?? null;
-        }
+    for (const q of preguntas) {
+      if (q.tipo === 'abcd') {
+        q.opciones = await this.ds.query(
+          `SELECT cod_opcion as codOpcion, texto_opcion as texto, validez_opcion as correcta
+           FROM opciones_abcd WHERE cod_pregunta=? ORDER BY cod_opcion ASC`,
+          [q.codPregunta],
+        );
       }
-      return { ...r, quiz: { preguntas } };
-    } else {
-      // form o checklist → usa metadata_reto.schema si existe
-      return { ...r, form: r.metadataReto?.schema ?? null };
+      if (q.tipo === 'rellenar') {
+        const [row] = await this.ds.query(
+          `SELECT respuesta_correcta as correcta FROM preguntas_rellenar WHERE cod_pregunta=?`,
+          [q.codPregunta],
+        );
+        q.correcta = row?.correcta ?? null;
+      }
+      if (q.tipo === 'emparejar') {
+        q.items = await this.ds.query(
+          `SELECT cod_item as codItem, lado, contenido FROM items_emparejamiento WHERE cod_pregunta=? ORDER BY cod_item ASC`,
+          [q.codPregunta],
+        );
+        q.parejas = await this.ds.query(
+          `SELECT cod_item_A as a, cod_item_B as b FROM parejas_correctas WHERE cod_pregunta=?`,
+          [q.codPregunta],
+        );
+      }
+      // tipo 'reporte': no hay tabla hija que consultar en tu esquema → nada adicional
     }
+    return { ...r, quiz: { preguntas } };
+  } else {
+    // 'form' o 'archivo' → metadata opcional
+    return { ...r, form: r.metadataReto?.schema ?? null };
   }
+}
+
 
   // ---------- LISTAR ----------
   public async listar(): Promise<RetoDTO[]> {
@@ -322,8 +320,16 @@ export class RetoService {
   }
 
   // ---------- CREAR (genérico) ----------
-  public async crear(payload: Partial<Reto>): Promise<RetoDTO> {
+  public async crear(payload: Partial<Reto>): Promise<RetoDTO | any> {
     try {
+      // Si es QUIZ y viene array de preguntas, redirige a crearQuiz (alimenta tablas)
+      const tipoMaybe = (payload as any)?.tipoReto ?? (payload as any)?.tipo ?? (payload as any)?.tipo_reto;
+      const tipo = tipoMaybe ? String(tipoMaybe).toLowerCase().trim() : undefined;
+      const preguntas = (payload as any)?.preguntas;
+      if (tipo === 'quiz' && Array.isArray(preguntas) && preguntas.length > 0) {
+        return this.crearQuiz(payload as any);
+      }
+
       const clean = { ...(payload as any) };
       if ('codReto' in clean) delete clean.codReto;
 
@@ -358,26 +364,26 @@ export class RetoService {
 
       // Flags
       clean.esAutomaticoReto = Number((payload as any)?.esAutomaticoReto ?? (payload as any)?.es_automatico_reto ?? clean.esAutomaticoReto) ? 1 : 0;
-      clean.activo           = Number((payload as any)?.activo ?? clean.activo) ? 1 : 0;
+      clean.activo = Number((payload as any)?.activo ?? clean.activo) ? 1 : 0;
 
-      // Tipo de reto (respetando 'checklist'; normaliza 'archivo'→'form')
-      let tipoReto: string | undefined = (payload as any)?.tipoReto ?? (payload as any)?.tipo ?? clean.tipoReto;
-      tipoReto = tipoReto ? String(tipoReto).toLowerCase().trim() : undefined;
+      // Tipo de reto
+let tipoReto: string | undefined = (payload as any)?.tipoReto ?? (payload as any)?.tipo ?? clean.tipoReto;
+tipoReto = tipoReto ? String(tipoReto).toLowerCase().trim() : undefined;
 
-      if (!tipoReto && clean.metadataReto && typeof clean.metadataReto === 'object') {
-        const kind = String(clean.metadataReto.kind ?? '').toLowerCase();
-        if (['quiz','form','checklist','archivo'].includes(kind)) tipoReto = kind;
-      }
-      if (!tipoReto) {
-        throw new HttpException('tipoReto es requerido (quiz|form|checklist|archivo)', HttpStatus.BAD_REQUEST);
-      }
-      if (tipoReto === 'archivo') tipoReto = 'form';
-      if (!['quiz', 'form', 'checklist'].includes(tipoReto)) {
-        throw new HttpException('tipoReto inválido (use "quiz", "form" o "checklist")', HttpStatus.BAD_REQUEST);
-      }
-      clean.tipoReto = tipoReto;
+if (!tipoReto && clean.metadataReto && typeof clean.metadataReto === 'object') {
+  const kind = String(clean.metadataReto.kind ?? '').toLowerCase();
+  if (['quiz', 'form', 'archivo'].includes(kind)) tipoReto = kind;
+}
+if (!tipoReto) {
+  throw new HttpException('tipoReto es requerido (quiz|form|archivo)', HttpStatus.BAD_REQUEST);
+}
+if (!['quiz', 'form', 'archivo'].includes(tipoReto)) {
+  throw new HttpException('tipoReto inválido (usa "quiz", "form" o "archivo")', HttpStatus.BAD_REQUEST);
+}
+clean.tipoReto = tipoReto;
 
-      // ====== FIX FECHAS: normaliza cada fecha por separado, sin usar new Date('YYYY-MM-DD') ======
+
+      // ====== FIX FECHAS ======
       if (clean.fechaInicioReto !== undefined) {
         clean.fechaInicioReto = toMySqlDateOrNull(clean.fechaInicioReto);
       }
@@ -435,13 +441,13 @@ export class RetoService {
     const current = await this.retoRepo.findOne({ where: { codReto: id } });
     if (!current) throw new NotFoundException('Reto no encontrado');
 
-    const clean = this.cleanPayload(payload); // ya normaliza fechas sin TZ issues
+    const clean = this.cleanPayload(payload); // ya normaliza fechas
     const updates: Partial<Reto> = { ...clean };
 
-    const rawAuto   = (payload as any)?.esAutomaticoReto ?? (payload as any)?.es_automatico_reto;
+    const rawAuto = (payload as any)?.esAutomaticoReto ?? (payload as any)?.es_automatico_reto;
     const rawActivo = (payload as any)?.activo;
-    if (rawAuto !== undefined)  updates.esAutomaticoReto = Number(rawAuto) ? 1 : 0;
-    if (rawActivo !== undefined) updates.activo          = Number(rawActivo) ? 1 : 0;
+    if (rawAuto !== undefined) updates.esAutomaticoReto = Number(rawAuto) ? 1 : 0;
+    if (rawActivo !== undefined) updates.activo = Number(rawActivo) ? 1 : 0;
 
     const rawConfig = (payload as any)?.config ?? (payload as any)?.metadataReto ?? (payload as any)?.metadata_reto;
     if (rawConfig !== undefined) {
@@ -452,21 +458,21 @@ export class RetoService {
       }
     }
 
-    let tipoReto: string | undefined =
-      (payload as any)?.tipoReto ?? (payload as any)?.tipo ?? (payload as any)?.tipo_reto;
-    tipoReto = tipoReto ? String(tipoReto).toLowerCase().trim() : undefined;
+let tipoReto: string | undefined =
+  (payload as any)?.tipoReto ?? (payload as any)?.tipo ?? (payload as any)?.tipo_reto;
+tipoReto = tipoReto ? String(tipoReto).toLowerCase().trim() : undefined;
 
-    if (!tipoReto && updates.metadataReto && typeof updates.metadataReto === 'object') {
-      const kind = String((updates.metadataReto as any).kind ?? '').toLowerCase();
-      if (['quiz','form','checklist','archivo'].includes(kind)) tipoReto = kind;
-    }
-    if (tipoReto) {
-      if (tipoReto === 'archivo') tipoReto = 'form'; // normaliza
-      if (!['quiz', 'form', 'checklist'].includes(tipoReto)) {
-        throw new BadRequestException('tipoReto inválido (use "quiz", "form" o "checklist")');
-      }
-      updates.tipoReto = tipoReto as any;
-    }
+if (!tipoReto && updates.metadataReto && typeof updates.metadataReto === 'object') {
+  const kind = String((updates.metadataReto as any).kind ?? '').toLowerCase();
+  if (['quiz', 'form', 'archivo'].includes(kind)) tipoReto = kind;
+}
+if (tipoReto) {
+  if (!['quiz', 'form', 'archivo'].includes(tipoReto)) {
+    throw new BadRequestException('tipoReto inválido (usa "quiz", "form" o "archivo")');
+  }
+  updates.tipoReto = tipoReto as any;
+}
+
 
     if (updates.nombreReto !== undefined && !String(updates.nombreReto).trim()) {
       throw new BadRequestException('nombreReto no puede ser vacío');
@@ -567,114 +573,98 @@ export class RetoService {
       // 2) Insert preguntas y dependientes
       let inserted = 0;
 
-      for (let i = 0; i < preguntas.length; i++) {
-        const p = preguntas[i] || {};
-        const numero = Number(p?.numero ?? p?.numero_pregunta ?? (i + 1));
-        const enunciado = String(p?.enunciado ?? p?.enunciado_pregunta ?? '').trim();
-        const tipo = String(p?.tipo ?? p?.tipo_pregunta ?? '').toLowerCase().trim();
-        const puntos = Math.max(0, Math.trunc(Number(p?.puntos ?? p?.puntos_pregunta ?? 1)));
-        const tiempoMax = Math.max(1, Math.trunc(Number(p?.tiempoMax ?? p?.tiempo_max_pregunta ?? 60)));
+for (let i = 0; i < preguntas.length; i++) {
+  const p = preguntas[i] || {};
+  const numero = Number(p?.numero ?? p?.numero_pregunta ?? (i + 1));
+  const enunciado = String(p?.enunciado ?? p?.enunciado_pregunta ?? '').trim();
+  const tipo = String(p?.tipo ?? p?.tipo_pregunta ?? '').toLowerCase().trim();
+  const puntos = Math.max(0, Math.trunc(Number(p?.puntos ?? p?.puntos_pregunta ?? 1)));
+  const tiempoMax = Math.max(1, Math.trunc(Number(p?.tiempoMax ?? p?.tiempo_max_pregunta ?? 60)));
 
-        if (!enunciado) throw new HttpException(`Pregunta #${i + 1}: enunciado requerido`, HttpStatus.BAD_REQUEST);
-        if (!['abcd', 'rellenar', 'emparejar', 'reporte'].includes(tipo)) {
-          throw new HttpException(`Pregunta #${i + 1}: tipo inválido`, HttpStatus.BAD_REQUEST);
-        }
+  if (!enunciado) throw new HttpException(`Pregunta #${i + 1}: enunciado requerido`, HttpStatus.BAD_REQUEST);
+  if (!['abcd', 'rellenar', 'emparejar', 'reporte'].includes(tipo)) {
+    throw new HttpException(`Pregunta #${i + 1}: tipo inválido`, HttpStatus.BAD_REQUEST);
+  }
 
-        const pregRes = await qr.manager.query(
-          `
-          INSERT INTO preguntas (
-            numero_pregunta, enunciado_pregunta, tipo_pregunta, puntos_pregunta, tiempo_max_pregunta, cod_reto
-          ) VALUES (?, ?, ?, ?, ?, ?)
-          `,
-          [numero, enunciado, tipo, puntos, tiempoMax, codReto],
-        );
-        const codPregunta: number = Number(pregRes?.insertId);
-        if (!codPregunta) throw new Error(`No se obtuvo codPregunta en #${i + 1}`);
+  const pregRes = await qr.manager.query(
+    `
+    INSERT INTO preguntas (
+      numero_pregunta, enunciado_pregunta, tipo_pregunta, puntos_pregunta, tiempo_max_pregunta, cod_reto
+    ) VALUES (?, ?, ?, ?, ?, ?)
+    `,
+    [numero, enunciado, tipo, puntos, tiempoMax, codReto],
+  );
+  const codPregunta: number = Number(pregRes?.insertId);
+  if (!codPregunta) throw new Error(`No se obtuvo codPregunta en #${i + 1}`);
 
-        if (tipo === 'abcd') {
-          const opciones = Array.isArray(p?.opciones) ? p.opciones : [];
-          if (opciones.length === 0) {
-            throw new HttpException(`Pregunta #${i + 1}: requiere opciones (abcd)`, HttpStatus.BAD_REQUEST);
-          }
-          for (const opt of opciones) {
-            const texto = String(opt?.texto ?? opt?.texto_opcion ?? '').trim();
-            const correcta = Number(opt?.correcta ?? opt?.validez_opcion ?? 0) ? 1 : 0;
-            if (!texto) throw new HttpException(`Pregunta #${i + 1}: opción vacía`, HttpStatus.BAD_REQUEST);
-            await qr.manager.query(
-              `INSERT INTO opciones_abcd (texto_opcion, validez_opcion, cod_pregunta) VALUES (?, ?, ?)`,
-              [texto, correcta, codPregunta],
-            );
-          }
-        }
+  if (tipo === 'abcd') {
+    const opciones = Array.isArray(p?.opciones) ? p.opciones : [];
+    if (opciones.length === 0) {
+      throw new HttpException(`Pregunta #${i + 1}: requiere opciones (abcd)`, HttpStatus.BAD_REQUEST);
+    }
+    for (const opt of opciones) {
+      const texto = String(opt?.texto ?? opt?.texto_opcion ?? '').trim();
+      const correcta = Number(opt?.correcta ?? opt?.validez_opcion ?? 0) ? 1 : 0;
+      if (!texto) throw new HttpException(`Pregunta #${i + 1}: opción vacía`, HttpStatus.BAD_REQUEST);
+      await qr.manager.query(
+        `INSERT INTO opciones_abcd (texto_opcion, validez_opcion, cod_pregunta) VALUES (?, ?, ?)`,
+        [texto, correcta, codPregunta],
+      );
+    }
+  }
 
-        if (tipo === 'rellenar') {
-          const resp = String(p?.rellenar?.respuesta ?? p?.respuestaCorrecta ?? p?.respuesta_correcta ?? '').trim();
-          if (!resp) throw new HttpException(`Pregunta #${i + 1}: respuesta_correcta requerida (rellenar)`, HttpStatus.BAD_REQUEST);
-          await qr.manager.query(
-            `INSERT INTO preguntas_rellenar (texto_pregunta, respuesta_correcta, cod_pregunta) VALUES (?, ?, ?)`,
-            [enunciado, resp, codPregunta],
-          );
-        }
+  if (tipo === 'rellenar') {
+    const resp = String(p?.rellenar?.respuesta ?? p?.respuestaCorrecta ?? p?.respuesta_correcta ?? '').trim();
+    if (!resp) throw new HttpException(`Pregunta #${i + 1}: respuesta_correcta requerida (rellenar)`, HttpStatus.BAD_REQUEST);
+    await qr.manager.query(
+      `INSERT INTO preguntas_rellenar (texto_pregunta, respuesta_correcta, cod_pregunta) VALUES (?, ?, ?)`,
+      [enunciado, resp, codPregunta],
+    );
+  }
 
-        if (tipo === 'emparejar') {
-          const A: string[] = Array.isArray(p?.emparejar?.A) ? p.emparejar.A : [];
-          const B: string[] = Array.isArray(p?.emparejar?.B) ? p.emparejar.B : [];
-          if (A.length === 0 || B.length === 0) {
-            throw new HttpException(`Pregunta #${i + 1}: requiere listas A y B (emparejar)`, HttpStatus.BAD_REQUEST);
-          }
+  if (tipo === 'emparejar') {
+    const A: string[] = Array.isArray(p?.emparejar?.A) ? p.emparejar.A : [];
+    const B: string[] = Array.isArray(p?.emparejar?.B) ? p.emparejar.B : [];
+    if (A.length === 0 || B.length === 0) {
+      throw new HttpException(`Pregunta #${i + 1}: requiere listas A y B (emparejar)`, HttpStatus.BAD_REQUEST);
+    }
 
-          const idsA: number[] = [];
-          for (const a of A) {
-            const rA = await qr.manager.query(
-              `INSERT INTO items_emparejamiento (lado, contenido, cod_pregunta) VALUES ('A', ?, ?)`,
-              [String(a), codPregunta],
-            );
-            idsA.push(Number(rA?.insertId));
-          }
+    const idsA: number[] = [];
+    for (const a of A) {
+      const rA = await qr.manager.query(
+        `INSERT INTO items_emparejamiento (lado, contenido, cod_pregunta) VALUES ('A', ?, ?)`,
+        [String(a), codPregunta],
+      );
+      idsA.push(Number(rA?.insertId));
+    }
 
-          const idsB: number[] = [];
-          for (const b of B) {
-            const rB = await qr.manager.query(
-              `INSERT INTO items_emparejamiento (lado, contenido, cod_pregunta) VALUES ('B', ?, ?)`,
-              [String(b), codPregunta],
-            );
-            idsB.push(Number(rB?.insertId));
-          }
+    const idsB: number[] = [];
+    for (const b of B) {
+      const rB = await qr.manager.query(
+        `INSERT INTO items_emparejamiento (lado, contenido, cod_pregunta) VALUES ('B', ?, ?)`,
+        [String(b), codPregunta],
+      );
+      idsB.push(Number(rB?.insertId));
+    }
 
-          const parejas: Array<[number, number]> = Array.isArray(p?.emparejar?.parejas) ? p.emparejar.parejas : [];
-          for (const par of parejas) {
-            const [ia, ib] = par;
-            const codA = idsA[ia];
-            const codB = idsB[ib];
-            if (!codA || !codB) {
-              throw new HttpException(`Pregunta #${i + 1}: índice de pareja fuera de rango`, HttpStatus.BAD_REQUEST);
-            }
-            await qr.manager.query(
-              `INSERT INTO parejas_correctas (cod_item_A, cod_item_B, cod_pregunta) VALUES (?, ?, ?)`,
-              [codA, codB, codPregunta],
-            );
-          }
-        }
-
-        if (tipo === 'reporte') {
-          const instrucciones = String(p?.reporte?.instrucciones ?? '').trim();
-          const tiposRaw: string[] = Array.isArray(p?.reporte?.tipos) ? p.reporte.tipos : [];
-          const ALLOWED = new Set(['pdf', 'jpg', 'png', 'docx']);
-          const tipos = tiposRaw
-            .map(t => String(t).toLowerCase().trim())
-            .filter(t => ALLOWED.has(t));
-          if (tipos.length === 0) {
-            throw new HttpException(`Pregunta #${i + 1}: tipos inválidos o vacíos (reporte)`, HttpStatus.BAD_REQUEST);
-          }
-          const setValue = tipos.join(',');
-          await qr.manager.query(
-            `INSERT INTO preguntas_reporte (instrucciones_pregunta, tipo_archivo_permitido, cod_pregunta) VALUES (?, ?, ?)`,
-            [instrucciones || 'Adjunta el archivo solicitado', setValue, codPregunta],
-          );
-        }
-
-        inserted++;
+    const parejas: Array<[number, number]> = Array.isArray(p?.emparejar?.parejas) ? p.emparejar.parejas : [];
+    for (const par of parejas) {
+      const [ia, ib] = par;
+      const codA = idsA[ia];
+      const codB = idsB[ib];
+      if (!codA || !codB) {
+        throw new HttpException(`Pregunta #${i + 1}: índice de pareja fuera de rango`, HttpStatus.BAD_REQUEST);
       }
+      await qr.manager.query(
+        `INSERT INTO parejas_correctas (cod_item_A, cod_item_B, cod_pregunta) VALUES (?, ?, ?)`,
+        [codA, codB, codPregunta],
+      );
+    }
+  }
+
+  // tipo 'reporte': no hay tabla hija → nada más que insertar en 'preguntas'
+}
+
 
       await qr.commitTransaction();
 
@@ -700,7 +690,7 @@ export class RetoService {
       };
 
     } catch (e: any) {
-      try { await qr.rollbackTransaction(); } catch {}
+      try { await qr.rollbackTransaction(); } catch { }
       console.error('[RETOS][crearQuiz] FAIL =>', {
         name: e?.name, message: e?.message, code: e?.code, errno: e?.errno,
         sqlMessage: e?.sqlMessage, sqlState: e?.sqlState, sql: e?.sql, stack: e?.stack,
@@ -710,14 +700,12 @@ export class RetoService {
       if (e?.errno === 1292) throw new HttpException('Fecha inválida', HttpStatus.BAD_REQUEST);
       throw new HttpException('No se pudo crear el quiz', HttpStatus.BAD_REQUEST);
     } finally {
-      try { await qr.release(); } catch {}
+      try { await qr.release(); } catch { }
     }
   }
 
   /**
    * ===== OPERARIOS del día =====
-   * - retosCompletados: # de retos completados por operario en esa fecha (usa fecha_complecion/terminado_en)
-   * - reportesSubidos: true si subió archivo ese día (tabla archivos) O respondió una pregunta tipo 'reporte' ese día.
    */
   public async operariosStatsDia(isoYmd: string) {
     const fecha = dayjs(isoYmd, 'YYYY-MM-DD', true);
@@ -742,12 +730,11 @@ export class RetoService {
         GROUP BY ur.cod_usuario
       ) rc ON rc.cod_usuario = u.cod_usuario
 
-      -- archivos subidos por el usuario ese día (si usas area para reportes, puedes filtrar)
+      -- archivos subidos por el usuario ese día
       LEFT JOIN (
         SELECT a.cod_usuario, COUNT(*) AS cnt
         FROM archivos a
         WHERE DATE(a.fecha_creacion) = ?
-          -- AND a.area IN ('reporte','reportes')
         GROUP BY a.cod_usuario
       ) ra ON ra.cod_usuario = u.cod_usuario
 
@@ -782,6 +769,151 @@ export class RetoService {
     return { total: Number(rows?.[0]?.total ?? 0) };
   }
 
+  // ============== SOBRESCRIBIR QUIZ (ahora: UPSERT SEGURO) ==============
+public async sobrescribirQuiz(codReto: number, preguntas: any[]) {
+  const reto = await this.retoRepo.findOne({ where: { codReto } });
+  if (!reto) throw new NotFoundException('Reto no encontrado');
+  if (reto.tipoReto !== 'quiz') throw new BadRequestException('El reto no es de tipo quiz');
+
+  const qr = this.ds.createQueryRunner();
+  await qr.connect();
+  await qr.startTransaction();
+  try {
+    const actuales: Array<{ codPregunta: number; numero: number; tipo: string }> = await qr.manager.query(
+      `SELECT cod_pregunta AS codPregunta, numero_pregunta AS numero, tipo_pregunta AS tipo
+       FROM preguntas WHERE cod_reto=?`,
+      [codReto]
+    );
+    const idsActuales = actuales.map(a => a.codPregunta);
+
+    const respCounts: Record<number, number> = {};
+    if (idsActuales.length) {
+      const inList = `(${idsActuales.join(',')})`;
+      const rows = await qr.manager.query(
+        `SELECT cod_pregunta AS codPregunta, COUNT(*) AS cnt
+         FROM respuestas_preguntas_usuario
+         WHERE cod_pregunta IN ${inList}
+         GROUP BY cod_pregunta`
+      );
+      for (const r of rows) respCounts[Number(r.codPregunta)] = Number(r.cnt);
+    }
+    const actualById = new Map(actuales.map(a => [a.codPregunta, a]));
+
+    const vistos = new Set<number>();
+    let upserted = 0;
+
+    for (let i = 0; i < preguntas.length; i++) {
+      const raw = preguntas[i] || {};
+      const codPregunta = Number(raw?.codPregunta ?? raw?.cod_pregunta ?? 0) || null;
+      const numero = Math.max(1, Math.trunc(Number(raw?.numero ?? i + 1)));
+      const enunciado = String(raw?.enunciado ?? raw?.enunciado_pregunta ?? '').trim();
+      const tipo = String(raw?.tipo ?? raw?.tipo_pregunta ?? '').toLowerCase().trim();
+      const puntos = Math.max(0, Math.trunc(Number(raw?.puntos ?? raw?.puntos_pregunta ?? 1)));
+      const tiempoMax = Math.max(1, Math.trunc(Number(raw?.tiempoMax ?? raw?.tiempo_max_pregunta ?? 60)));
+
+      if (!enunciado) throw new BadRequestException(`Pregunta #${i + 1}: enunciado requerido`);
+      if (!['abcd', 'rellenar', 'emparejar', 'reporte'].includes(tipo)) {
+        throw new BadRequestException(`Pregunta #${i + 1}: tipo inválido`);
+      }
+
+      if (codPregunta && actualById.has(codPregunta)) {
+        vistos.add(codPregunta);
+        const prev = actualById.get(codPregunta)!;
+        const tieneResp = (respCounts[codPregunta] ?? 0) > 0;
+        const tipoToUse = tieneResp ? prev.tipo : tipo;
+
+        await qr.manager.query(
+          `UPDATE preguntas
+           SET numero_pregunta=?, enunciado_pregunta=?, tipo_pregunta=?, puntos_pregunta=?, tiempo_max_pregunta=?
+           WHERE cod_pregunta=?`,
+          [numero, enunciado, tipoToUse, puntos, tiempoMax, codPregunta]
+        );
+
+        if (!tieneResp && prev.tipo !== tipo) {
+          await this.clearTipoDependientes(qr, codPregunta, prev.tipo);
+        }
+
+        if (tipoToUse === 'abcd') {
+          await this.upsertOpcionesABCD(qr, codPregunta, raw?.opciones);
+          if (!tieneResp && prev.tipo !== 'abcd') {
+            await this.clearTipoDependientes(qr, codPregunta, 'rellenar');
+            await this.clearTipoDependientes(qr, codPregunta, 'emparejar');
+          }
+        } else if (tipoToUse === 'rellenar') {
+          const resp = String(raw?.rellenar?.respuesta ?? raw?.respuestaCorrecta ?? '').trim();
+          if (!resp) throw new BadRequestException(`Pregunta #${i + 1}: respuesta_correcta requerida (rellenar)`);
+          await this.upsertRellenar(qr, codPregunta, enunciado, resp);
+          if (!tieneResp && prev.tipo !== 'rellenar') {
+            await this.clearTipoDependientes(qr, codPregunta, 'abcd');
+            await this.clearTipoDependientes(qr, codPregunta, 'emparejar');
+          }
+        } else if (tipoToUse === 'emparejar') {
+          await this.replaceEmparejar(qr, codPregunta, raw?.emparejar);
+          if (!tieneResp && prev.tipo !== 'emparejar') {
+            await this.clearTipoDependientes(qr, codPregunta, 'abcd');
+            await this.clearTipoDependientes(qr, codPregunta, 'rellenar');
+          }
+        }
+        // tipo 'reporte': no hay dependientes que gestionar
+
+        upserted++;
+      } else {
+        const res = await qr.manager.query(
+          `INSERT INTO preguntas (numero_pregunta, enunciado_pregunta, tipo_pregunta, puntos_pregunta, tiempo_max_pregunta, cod_reto)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [numero, enunciado, tipo, puntos, tiempoMax, codReto]
+        );
+        const newId: number = Number(res?.insertId);
+        if (!newId) throw new Error('No se obtuvo codPregunta (insert)');
+
+        if (tipo === 'abcd') {
+          await this.upsertOpcionesABCD(qr, newId, raw?.opciones);
+        } else if (tipo === 'rellenar') {
+          const resp = String(raw?.rellenar?.respuesta ?? raw?.respuestaCorrecta ?? '').trim();
+          if (!resp) throw new BadRequestException(`Pregunta #${i + 1}: respuesta_correcta requerida (rellenar)`);
+          await this.upsertRellenar(qr, newId, enunciado, resp);
+        } else if (tipo === 'emparejar') {
+          await this.replaceEmparejar(qr, newId, raw?.emparejar);
+        }
+        // tipo 'reporte': no requiere tablas hijas
+
+        upserted++;
+      }
+    }
+
+    // Bajas/archivados
+    let eliminadas = 0;
+    let archivadas = 0;
+    for (const p of actuales) {
+      if (vistos.has(p.codPregunta)) continue;
+      const tieneResp = (respCounts[p.codPregunta] ?? 0) > 0;
+      if (!tieneResp) {
+        await this.clearAllTipos(qr, p.codPregunta);
+        await qr.manager.query(`DELETE FROM preguntas WHERE cod_pregunta=?`, [p.codPregunta]);
+        eliminadas++;
+      } else {
+        await qr.manager.query(
+          `UPDATE preguntas
+           SET numero_pregunta = -ABS(numero_pregunta),
+               enunciado_pregunta = CONCAT('[ARCHIVADA] ', enunciado_pregunta)
+           WHERE cod_pregunta=?`,
+          [p.codPregunta]
+        );
+        archivadas++;
+      }
+    }
+
+    await qr.commitTransaction();
+    return { ok: true, codReto, preguntasUpsertadas: upserted, archivadas, eliminadas };
+  } catch (e) {
+    try { await qr.rollbackTransaction(); } catch {}
+    throw e;
+  } finally {
+    try { await qr.release(); } catch {}
+  }
+}
+
+
   // ------- helpers -------
   private cleanPayload(p: any): Partial<Reto> {
     const nombreReto: string | undefined = p?.nombreReto ?? p?.nombre_reto;
@@ -792,7 +924,6 @@ export class RetoService {
       p?.tiempoEstimadoSegReto ?? p?.tiempo_estimado_seg_reto,
     );
 
-    // FECHAS: usar parse "seguro" que preserva YYYY-MM-DD tal cual
     const fechaInicioReto: string | null = toMySqlDateOrNull(
       p?.fechaInicioReto ?? p?.fecha_inicio_reto,
     );
@@ -808,6 +939,153 @@ export class RetoService {
       fechaFinReto,
     } as Partial<Reto>;
   }
+
+  private async upsertOpcionesABCD(qr: any, codPregunta: number, opcionesRaw: any) {
+    const opciones = Array.isArray(opcionesRaw) ? opcionesRaw : [];
+    if (opciones.length === 0) throw new BadRequestException('ABCD: requiere opciones');
+
+    const existentes: Array<{ codOpcion: number }> = await qr.manager.query(
+      `SELECT cod_opcion AS codOpcion FROM opciones_abcd WHERE cod_pregunta=?`,
+      [codPregunta]
+    );
+    const byId = new Map<number, true>(existentes.map(o => [o.codOpcion, true]));
+    const vistos = new Set<number>();
+
+    for (const o of opciones) {
+      const codOpcion = Number(o?.codOpcion ?? o?.cod_opcion ?? 0) || null;
+      const texto = String(o?.texto ?? o?.texto_opcion ?? '').trim();
+      const correcta = Number(o?.correcta ?? o?.validez_opcion ?? 0) ? 1 : 0;
+      if (!texto) throw new BadRequestException('ABCD: opción vacía');
+
+      if (codOpcion && byId.has(codOpcion)) {
+        await qr.manager.query(
+          `UPDATE opciones_abcd SET texto_opcion=?, validez_opcion=? WHERE cod_opcion=? AND cod_pregunta=?`,
+          [texto, correcta, codOpcion, codPregunta]
+        );
+        vistos.add(codOpcion);
+      } else {
+        await qr.manager.query(
+          `INSERT INTO opciones_abcd (texto_opcion, validez_opcion, cod_pregunta) VALUES (?, ?, ?)`,
+          [texto, correcta, codPregunta]
+        );
+      }
+    }
+
+    // Borrar las que ya no están
+    if (existentes.length) {
+      const aBorrar = existentes
+        .map(o => o.codOpcion)
+        .filter(id => !vistos.has(id));
+      if (aBorrar.length) {
+        const inList = `(${aBorrar.join(',')})`;
+        await qr.manager.query(
+          `DELETE FROM opciones_abcd WHERE cod_pregunta=? AND cod_opcion IN ${inList}`,
+          [codPregunta]
+        );
+      }
+    }
+  }
+
+  private async upsertRellenar(qr: any, codPregunta: number, enunciado: string, resp: string) {
+    const [row] = await qr.manager.query(
+      `SELECT cod_pregunta FROM preguntas_rellenar WHERE cod_pregunta=?`,
+      [codPregunta]
+    );
+    if (row) {
+      await qr.manager.query(
+        `UPDATE preguntas_rellenar SET texto_pregunta=?, respuesta_correcta=? WHERE cod_pregunta=?`,
+        [enunciado, resp, codPregunta]
+      );
+    } else {
+      await qr.manager.query(
+        `INSERT INTO preguntas_rellenar (texto_pregunta, respuesta_correcta, cod_pregunta) VALUES (?, ?, ?)`,
+        [enunciado, resp, codPregunta]
+      );
+    }
+  }
+
+  private async upsertReporte(qr: any, codPregunta: number, data: any) {
+    const instrucciones = String(data?.instrucciones ?? '').trim() || 'Adjunta el archivo solicitado';
+    const tiposRaw: string[] = Array.isArray(data?.tipos) ? data.tipos : [];
+    const ALLOWED = new Set(['pdf', 'jpg', 'png', 'docx']);
+    const tipos = tiposRaw.map(t => String(t).toLowerCase().trim()).filter(t => ALLOWED.has(t));
+    if (tipos.length === 0) throw new BadRequestException('Reporte: tipos inválidos o vacíos');
+
+    const [row] = await qr.manager.query(
+      `SELECT cod_pregunta FROM preguntas_reporte WHERE cod_pregunta=?`,
+      [codPregunta]
+    );
+    const setValue = tipos.join(',');
+    if (row) {
+      await qr.manager.query(
+        `UPDATE preguntas_reporte SET instrucciones_pregunta=?, tipo_archivo_permitido=? WHERE cod_pregunta=?`,
+        [instrucciones, setValue, codPregunta]
+      );
+    } else {
+      await qr.manager.query(
+        `INSERT INTO preguntas_reporte (instrucciones_pregunta, tipo_archivo_permitido, cod_pregunta) VALUES (?, ?, ?)`,
+        [instrucciones, setValue, codPregunta]
+      );
+    }
+  }
+
+  private async replaceEmparejar(qr: any, codPregunta: number, emp: any) {
+    const A: string[] = Array.isArray(emp?.A) ? emp.A : [];
+    const B: string[] = Array.isArray(emp?.B) ? emp.B : [];
+    const parejas: Array<[number, number]> = Array.isArray(emp?.parejas) ? emp.parejas : [];
+    if (A.length === 0 || B.length === 0) throw new BadRequestException('Emparejar: requiere listas A y B');
+
+    // Borra items/pParejas y vuelve a crear
+    await qr.manager.query(`DELETE FROM parejas_correctas WHERE cod_pregunta=?`, [codPregunta]);
+    await qr.manager.query(`DELETE FROM items_emparejamiento WHERE cod_pregunta=?`, [codPregunta]);
+
+    const idsA: number[] = [];
+    for (const a of A) {
+      const rA = await qr.manager.query(
+        `INSERT INTO items_emparejamiento (lado, contenido, cod_pregunta) VALUES ('A', ?, ?)`,
+        [String(a), codPregunta]
+      );
+      idsA.push(Number(rA?.insertId));
+    }
+    const idsB: number[] = [];
+    for (const b of B) {
+      const rB = await qr.manager.query(
+        `INSERT INTO items_emparejamiento (lado, contenido, cod_pregunta) VALUES ('B', ?, ?)`,
+        [String(b), codPregunta]
+      );
+      idsB.push(Number(rB?.insertId));
+    }
+    for (const [ia, ib] of parejas) {
+      const codA = idsA[ia];
+      const codB = idsB[ib];
+      if (!codA || !codB) throw new BadRequestException('Emparejar: pareja fuera de rango');
+      await qr.manager.query(
+        `INSERT INTO parejas_correctas (cod_item_A, cod_item_B, cod_pregunta) VALUES (?, ?, ?)`,
+        [codA, codB, codPregunta]
+      );
+    }
+  }
+
+  private async clearTipoDependientes(qr: any, codPregunta: number, tipo: string) {
+  if (tipo === 'abcd') {
+    await qr.manager.query(`DELETE FROM opciones_abcd WHERE cod_pregunta=?`, [codPregunta]);
+  } else if (tipo === 'rellenar') {
+    await qr.manager.query(`DELETE FROM preguntas_rellenar WHERE cod_pregunta=?`, [codPregunta]);
+  } else if (tipo === 'emparejar') {
+    await qr.manager.query(`DELETE FROM parejas_correctas WHERE cod_pregunta=?`, [codPregunta]);
+    await qr.manager.query(`DELETE FROM items_emparejamiento WHERE cod_pregunta=?`, [codPregunta]);
+  }
+  // tipo 'reporte': sin dependientes en tu esquema
+}
+
+private async clearAllTipos(qr: any, codPregunta: number) {
+  await qr.manager.query(`DELETE FROM parejas_correctas WHERE cod_pregunta=?`, [codPregunta]);
+  await qr.manager.query(`DELETE FROM items_emparejamiento WHERE cod_pregunta=?`, [codPregunta]);
+  await qr.manager.query(`DELETE FROM preguntas_rellenar WHERE cod_pregunta=?`, [codPregunta]);
+  await qr.manager.query(`DELETE FROM opciones_abcd WHERE cod_pregunta=?`, [codPregunta]);
+  // nada para 'reporte'
+}
+
 }
 
 /* ===== Utils ===== */
@@ -835,19 +1113,16 @@ function toMySqlDateOrNull(v: any): string | null {
     return d.isValid() ? d.format('YYYY-MM-DD') : null;
   }
 
-  // Date | number | otros: usar dayjs sin forzar TZ
   const d = dayjs(v);
   return d.isValid() ? d.format('YYYY-MM-DD') : null;
 }
 
-// DATETIME (por si lo necesitas)
 function toMySqlDateTimeOrNull(v: any): string | null {
   if (v === undefined || v === null || v === '') return null;
   const d = dayjs(v);
   return d.isValid() ? d.format('YYYY-MM-DD HH:mm:ss') : null;
 }
 
-// Icono por tipo o metadata
 function pickIcon(tipo: string, meta?: any): string {
   const fromMeta = (meta?.icon ?? meta?.icono ?? meta?.emoji ?? '').toString().trim();
   if (fromMeta) return fromMeta; // emoji o Ionicons
@@ -855,7 +1130,7 @@ function pickIcon(tipo: string, meta?: any): string {
   const t = String(tipo ?? '').toLowerCase();
   switch (t) {
     case 'quiz': return 'help-circle';
-    case 'checklist': return 'checkmark-done';
+    case 'archivo': return 'document-attach';
     case 'form': default: return 'document-text';
   }
 }

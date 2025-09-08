@@ -1,4 +1,3 @@
-// reto.controller.ts
 import {
   Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put,
   UseGuards, Req, ForbiddenException, BadRequestException, Query,
@@ -43,7 +42,6 @@ export class RetoController {
   /**
    * Calendario por día (asignaciones del usuario).
    * GET /reto/dia?fecha=YYYY-MM-DD&usuario=ID
-   * Si hay JWT, toma usuario del token y puedes omitir ?usuario
    */
   @Get('dia')
   async listarPorDia(
@@ -110,7 +108,8 @@ export class RetoController {
     return this.retoService.detalle(codReto);
   }
 
-  // -------- Crear reto genérico (NO toca tablas de preguntas) --------
+  // -------- Crear reto genérico --------
+  // Si tipo=quiz y viene preguntas[], crea el quiz completo (tablas), no solo metadata
   @Post('crear')
   async crear(@Req() req: Request, @Body() body: any) {
     const u = (req as any).user;
@@ -120,8 +119,7 @@ export class RetoController {
     return this.retoService.crear(body);
   }
 
-  // -------- Crear QUIZ con estructura completa --------
-  // (normaliza payload por si el front manda JSON como string en FormData)
+  // -------- Crear QUIZ con estructura completa (ruta dedicada sigue existiendo) --------
   @Post('crear-quiz')
   async crearQuiz(@Req() req: Request, @Body() body: any) {
     const u = (req as any).user;
@@ -175,6 +173,19 @@ export class RetoController {
       [ymd, ymd],
     );
     return { fecha: ymd, candidatos: rows.length, rows };
+  }
+
+  @Put('quiz/sobrescribir')
+  async sobrescribirQuiz(@Body() body: any) {
+    const codReto = Number(body?.codReto ?? body?.cod_reto);
+    if (!Number.isFinite(codReto)) {
+      throw new BadRequestException('codReto es requerido y numérico');
+    }
+    const preguntas = Array.isArray(body?.preguntas) ? body.preguntas : [];
+    if (preguntas.length === 0) {
+      throw new BadRequestException('Debes enviar al menos 1 pregunta');
+    }
+    return this.retoService.sobrescribirQuiz(codReto, preguntas);
   }
 }
 
