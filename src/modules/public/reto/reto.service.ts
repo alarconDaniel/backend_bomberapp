@@ -1035,6 +1035,80 @@ export class RetoService {
     }));
   }
 
+  // En RetoService
+// En RetoService
+public async participacionSemanal(
+  isoYmd: string
+): Promise<{ semanas: number; items: Array<{ semana: number; completados: number }> }> {
+  const fecha = dayjs(isoYmd, 'YYYY-MM-DD', true);
+  if (!fecha.isValid()) throw new BadRequestException('Fecha inválida (YYYY-MM-DD)');
+
+  const startStr = fecha.startOf('month').format('YYYY-MM-01');
+  const endStr   = fecha.endOf('month').format('YYYY-MM-DD');
+
+  // ¿Cuántas semanas "visibles" tiene el mes, con lunes=0?
+  const [weekRow] = await this.ds.query(
+    `SELECT CEIL((WEEKDAY(?) + DAY(LAST_DAY(?)))/7) AS semanas`,
+    [startStr, startStr]
+  );
+  const semanas = Number(weekRow?.semanas ?? 4) || 4;
+
+  // Bucket por semana 100% en SQL (evita TZ y tipos raros)
+  const rows: Array<{ semana: number; completados: number }> = await this.ds.query(
+    `
+    WITH daily AS (
+      SELECT DATE(COALESCE(ur.fecha_complecion, ur.terminado_en)) AS f,
+             ur.cod_usuario, ur.cod_reto
+      FROM usuarios_retos ur
+      WHERE ur.estado = 'completado'
+        AND DATE(COALESCE(ur.fecha_complecion, ur.terminado_en)) BETWEEN ? AND ?
+
+      UNION ALL
+      SELECT DATE(rfu.terminado_en) AS f,
+             ur.cod_usuario, ur.cod_reto
+      FROM respuestas_formulario_usuario rfu
+      JOIN usuarios_retos ur ON ur.cod_usuario_reto = rfu.cod_usuario_reto
+      WHERE rfu.terminado_en IS NOT NULL
+        AND DATE(rfu.terminado_en) BETWEEN ? AND ?
+
+      UNION ALL
+      SELECT DATE(rpu.respondido_en) AS f,
+             ur.cod_usuario, ur.cod_reto
+      FROM respuestas_preguntas_usuario rpu
+      JOIN usuarios_retos ur ON ur.cod_usuario_reto = rpu.cod_usuario_reto
+      JOIN preguntas p ON p.cod_pregunta = rpu.cod_pregunta
+      WHERE p.tipo_pregunta = 'reporte'
+        AND DATE(rpu.respondido_en) BETWEEN ? AND ?
+    ),
+    per_day AS (
+      -- Evitamos doble conteo: mismo usuario+reto en el mismo día cuenta una sola vez
+      SELECT f, COUNT(DISTINCT CONCAT(cod_usuario, ':', cod_reto)) AS completados
+      FROM daily
+      GROUP BY f
+    )
+    SELECT
+      FLOOR((WEEKDAY(?) + DAY(f) - 1)/7) + 1 AS semana,
+      SUM(completados) AS completados
+    FROM per_day
+    GROUP BY semana
+    ORDER BY semana
+    `,
+    [startStr, endStr, startStr, endStr, startStr, endStr, startStr]
+  );
+
+  // Normaliza a {1..semanas}, rellenando semanas faltantes con 0
+  const byWeek = new Map<number, number>();
+  for (const r of rows) byWeek.set(Number(r.semana), Number(r.completados));
+
+  const items = Array.from({ length: semanas }, (_, i) => {
+    const w = i + 1;
+    return { semana: w, completados: byWeek.get(w) ?? 0 };
+  });
+
+  return { semanas, items };
+}
+
+
   /** NUEVO: conteo total de operarios (cod_rol = 2) */
   public async contarOperarios(): Promise<{ total: number }> {
     const rows = await this.ds.query(

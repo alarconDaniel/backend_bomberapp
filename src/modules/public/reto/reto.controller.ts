@@ -1,41 +1,52 @@
 import {
-  Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put,
-  UseGuards, Req, ForbiddenException, BadRequestException, Query,
-} from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
-import { Request } from 'express';
-import * as dayjs from 'dayjs';
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseIntPipe,
+  Post,
+  Put,
+  UseGuards,
+  Req,
+  ForbiddenException,
+  BadRequestException,
+  Query,
+} from "@nestjs/common";
+import { AuthGuard } from "@nestjs/passport";
+import { Request } from "express";
+import * as dayjs from "dayjs";
 
-import { RetoService } from './reto.service';
-import { UsuarioService } from 'src/modules/public/usuario/usuario.service';
+import { RetoService } from "./reto.service";
+import { UsuarioService } from "src/modules/public/usuario/usuario.service";
 
-@UseGuards(AuthGuard('jwt'))
-@Controller('reto')
+@UseGuards(AuthGuard("jwt"))
+@Controller("reto")
 export class RetoController {
   constructor(
     private readonly retoService: RetoService,
-    private readonly usuarioService: UsuarioService,
+    private readonly usuarioService: UsuarioService
   ) {}
 
   /** DTO compacto (para selects/listas) */
-  @Get('listar-dto')
+  @Get("listar-dto")
   listar() {
     return this.retoService.listar();
   }
 
   /** RAW find() (compatibilidad) */
-  @Get('listar')
+  @Get("listar")
   listarRetos() {
     return this.retoService.listarRetos();
   }
 
-  @Get('ver/:cod')
-  verReto(@Param('cod', ParseIntPipe) cod: number) {
+  @Get("ver/:cod")
+  verReto(@Param("cod", ParseIntPipe) cod: number) {
     return this.retoService.verReto(cod);
   }
 
-  @Get('ver/full/:cod')
-  async verRetoFull(@Param('cod', ParseIntPipe) cod: number) {
+  @Get("ver/full/:cod")
+  async verRetoFull(@Param("cod", ParseIntPipe) cod: number) {
     return this.retoService.verRetoFull(cod);
   }
 
@@ -43,18 +54,18 @@ export class RetoController {
    * Calendario por día (asignaciones del usuario).
    * GET /reto/dia?fecha=YYYY-MM-DD&usuario=ID
    */
-  @Get('dia')
+  @Get("dia")
   async listarPorDia(
     @Req() req: any,
-    @Query('fecha') fecha?: string,
-    @Query('usuario') usuario?: string,
+    @Query("fecha") fecha?: string,
+    @Query("usuario") usuario?: string
   ) {
-    const ymd = fecha || dayjs().format('YYYY-MM-DD');
+    const ymd = fecha || dayjs().format("YYYY-MM-DD");
     const uid = Number(usuario ?? req?.user?.sub);
-    if (!uid) throw new BadRequestException('Falta usuario');
-    const hoy = dayjs().format('YYYY-MM-DD');
+    if (!uid) throw new BadRequestException("Falta usuario");
+    const hoy = dayjs().format("YYYY-MM-DD");
     if (dayjs(ymd).isAfter(hoy)) {
-      throw new BadRequestException('No puedes ver días futuros');
+      throw new BadRequestException("No puedes ver días futuros");
     }
     return this.retoService.listarPorDia(uid, ymd);
   }
@@ -63,99 +74,109 @@ export class RetoController {
    * Agregado/progreso de retos del día para HomeScreen
    * GET /reto/progreso-dia?fecha=YYYY-MM-DD[&usuario=ID]
    */
-  @Get('progreso-dia')
+  @Get("progreso-dia")
   async progresoDia(
     @Req() req: any,
-    @Query('fecha') fecha?: string,
-    @Query('usuario') usuario?: string,
+    @Query("fecha") fecha?: string,
+    @Query("usuario") usuario?: string
   ) {
-    const ymd = fecha || dayjs().format('YYYY-MM-DD');
+    const ymd = fecha || dayjs().format("YYYY-MM-DD");
     const uid = usuario ? Number(usuario) : Number(req?.user?.sub ?? -1);
-    return this.retoService.progresoDia(ymd, Number.isFinite(uid) ? uid : undefined);
+    return this.retoService.progresoDia(
+      ymd,
+      Number.isFinite(uid) ? uid : undefined
+    );
   }
 
   /**
    * OPERARIOS del día (HomeScreen → tabla Operarios)
    * GET /reto/operarios-dia?fecha=YYYY-MM-DD
    */
-  @Get('operarios-dia')
-  async operariosDia(@Query('fecha') fecha?: string) {
-    const ymd = fecha || dayjs().format('YYYY-MM-DD');
+  @Get("operarios-dia")
+  async operariosDia(@Query("fecha") fecha?: string) {
+    const ymd = fecha || dayjs().format("YYYY-MM-DD");
     return this.retoService.operariosStatsDia(ymd);
   }
 
   /** Total de operarios (cod_rol = 2) */
-  @Get('operarios-count')
+  @Get("operarios-count")
   operariosCount() {
     return this.retoService.contarOperarios();
   }
 
+  // En RetoController
+  @Get("participacion-semanal")
+  async participacionSemanal(@Query("fecha") fecha?: string) {
+    const ymd = fecha || dayjs().format("YYYY-MM-DD");
+    return this.retoService.participacionSemanal(ymd);
+  }
+
   // ==== utilidades para pruebas de cron (opcionales) ====
-  @Post('cron/asignar')
-  async cronAsignar(@Query('fecha') fecha?: string) {
-    const ymd = fecha || dayjs().format('YYYY-MM-DD');
+  @Post("cron/asignar")
+  async cronAsignar(@Query("fecha") fecha?: string) {
+    const ymd = fecha || dayjs().format("YYYY-MM-DD");
     return this.retoService.asignarAutomaticosSiLaboral(ymd);
   }
 
-  @Post('cron/vencer')
-  async cronVencer(@Query('fecha') fecha?: string) {
-    const ymd = fecha || dayjs().format('YYYY-MM-DD');
+  @Post("cron/vencer")
+  async cronVencer(@Query("fecha") fecha?: string) {
+    const ymd = fecha || dayjs().format("YYYY-MM-DD");
     return this.retoService.marcarVencidos(ymd);
   }
 
-  @Get(':codReto')
-  detalle(@Param('codReto', ParseIntPipe) codReto: number) {
-    return this.retoService.detalle(codReto);
-  }
+
 
   // -------- Crear reto genérico --------
   // Si tipo=quiz y viene preguntas[], crea el quiz completo (tablas), no solo metadata
-  @Post('crear')
+  @Post("crear")
   async crear(@Req() req: Request, @Body() body: any) {
     const u = (req as any).user;
     const ok = await isAdmin(u, (sub) => this.usuarioService.findById(sub));
-    if (!ok) throw new ForbiddenException('Solo admin puede crear retos');
-    if ('codReto' in body) delete body.codReto;
+    if (!ok) throw new ForbiddenException("Solo admin puede crear retos");
+    if ("codReto" in body) delete body.codReto;
     return this.retoService.crear(body);
   }
 
   // -------- Crear QUIZ con estructura completa (ruta dedicada sigue existiendo) --------
-  @Post('crear-quiz')
+  @Post("crear-quiz")
   async crearQuiz(@Req() req: Request, @Body() body: any) {
     const u = (req as any).user;
     const ok = await isAdmin(u, (sub) => this.usuarioService.findById(sub));
-    if (!ok) throw new ForbiddenException('Solo admin puede crear retos');
+    if (!ok) throw new ForbiddenException("Solo admin puede crear retos");
 
     const payload = normalizeQuizPayload(body);
     return this.retoService.crearQuiz(payload);
   }
 
   // Modificar reto
-  @Put('modificar')
+  @Put("modificar")
   async modificar(@Req() req: Request, @Body() body: any) {
     const u = (req as any).user;
     const ok = await isAdmin(u, (sub) => this.usuarioService.findById(sub));
-    if (!ok) throw new ForbiddenException('Solo admin puede modificar retos');
+    if (!ok) throw new ForbiddenException("Solo admin puede modificar retos");
 
     const codReto = Number(body?.codReto ?? body?.cod_reto);
     if (!Number.isFinite(codReto)) {
-      throw new BadRequestException('codReto es requerido y debe ser numérico');
+      throw new BadRequestException("codReto es requerido y debe ser numérico");
     }
     return this.retoService.modificar(codReto, body);
   }
 
-  @Delete('borrar/:codReto')
-  async borrar(@Req() req: Request, @Param('codReto', ParseIntPipe) codReto: number) {
+  @Delete("borrar/:codReto")
+  async borrar(
+    @Req() req: Request,
+    @Param("codReto", ParseIntPipe) codReto: number
+  ) {
     const u = (req as any).user;
     const ok = await isAdmin(u, (sub) => this.usuarioService.findById(sub));
-    if (!ok) throw new ForbiddenException('Solo admin puede borrar retos');
+    if (!ok) throw new ForbiddenException("Solo admin puede borrar retos");
     return this.retoService.borrar(codReto);
   }
 
   // QA: ver candidatos del cron según fecha
-  @Get('cron/dry-run')
-  async dryRun(@Query('fecha') fecha?: string) {
-    const ymd = fecha || dayjs().format('YYYY-MM-DD');
+  @Get("cron/dry-run")
+  async dryRun(@Query("fecha") fecha?: string) {
+    const ymd = fecha || dayjs().format("YYYY-MM-DD");
     const rows = await (this.retoService as any).ds.query(
       `
       SELECT u.cod_usuario, u.nombre_usuario, u.apellido_usuario, u.cod_cargo_usuario,
@@ -170,36 +191,48 @@ export class RetoController {
         AND r.fecha_fin_reto   >= ?
       ORDER BY u.cod_usuario, r.cod_reto
       `,
-      [ymd, ymd],
+      [ymd, ymd]
     );
     return { fecha: ymd, candidatos: rows.length, rows };
   }
 
-// Dentro de RetoController
-@Get(':cod/cargos')
-async cargosDeReto(@Param('cod', ParseIntPipe) cod: number) {
-  return this.retoService.cargosDeReto(cod);
-}
+  // Dentro de RetoController
 
 
-  @Put('quiz/sobrescribir')
+  @Put("quiz/sobrescribir")
   async sobrescribirQuiz(@Body() body: any) {
     const codReto = Number(body?.codReto ?? body?.cod_reto);
     if (!Number.isFinite(codReto)) {
-      throw new BadRequestException('codReto es requerido y numérico');
+      throw new BadRequestException("codReto es requerido y numérico");
     }
     const preguntas = Array.isArray(body?.preguntas) ? body.preguntas : [];
     if (preguntas.length === 0) {
-      throw new BadRequestException('Debes enviar al menos 1 pregunta');
+      throw new BadRequestException("Debes enviar al menos 1 pregunta");
     }
     return this.retoService.sobrescribirQuiz(codReto, preguntas);
   }
+
+
+  @Get(":codReto")
+  detalle(@Param("codReto", ParseIntPipe) codReto: number) {
+    return this.retoService.detalle(codReto);
+  }
+
+    @Get(":cod/cargos")
+  async cargosDeReto(@Param("cod", ParseIntPipe) cod: number) {
+    return this.retoService.cargosDeReto(cod);
+  }
+
 }
 
 /* ===================== helpers ===================== */
 function parseMaybeJson<T = any>(v: any): T {
-  if (typeof v === 'string') {
-    try { return JSON.parse(v) as T; } catch { /* ignore */ }
+  if (typeof v === "string") {
+    try {
+      return JSON.parse(v) as T;
+    } catch {
+      /* ignore */
+    }
   }
   return v as T;
 }
@@ -222,30 +255,44 @@ function normalizeQuizPayload(body: any) {
 function checkAdminShape(user: any): boolean {
   if (!user) return false;
   const flat = [
-    user.rol, user.role, user.roleId, user.rolId, user.codRol, user.cod_rol,
-    user.idRol, user.id_rol, user.nombreRol, user.nombre_rol, user.perfil, user.isAdmin,
-  ].filter(v => v !== undefined && v !== null);
+    user.rol,
+    user.role,
+    user.roleId,
+    user.rolId,
+    user.codRol,
+    user.cod_rol,
+    user.idRol,
+    user.id_rol,
+    user.nombreRol,
+    user.nombre_rol,
+    user.perfil,
+    user.isAdmin,
+  ].filter((v) => v !== undefined && v !== null);
 
   for (const v of flat) {
     if (v === true || v === 1) return true;
     const s = String(v).trim().toLowerCase();
-    if (s === 'admin' || s === 'administrador' || s === '1') return true;
+    if (s === "admin" || s === "administrador" || s === "1") return true;
     const n = Number(s);
     if (!Number.isNaN(n) && n === 1) return true;
   }
 
   const nested = (user as any).rol || (user as any).role;
   if (nested) {
-    const name = String(nested.name ?? nested.nombre ?? '').trim().toLowerCase();
+    const name = String(nested.name ?? nested.nombre ?? "")
+      .trim()
+      .toLowerCase();
     const id = Number(nested.id ?? nested.codRol ?? nested.cod_rol);
-    if (name === 'admin' || name === 'administrador' || id === 1) return true;
+    if (name === "admin" || name === "administrador" || id === 1) return true;
   }
 
   if (Array.isArray((user as any).roles)) {
     for (const r of (user as any).roles) {
-      const name = String((r && (r.name ?? r.nombre)) ?? r).trim().toLowerCase();
+      const name = String((r && (r.name ?? r.nombre)) ?? r)
+        .trim()
+        .toLowerCase();
       const id = Number(r?.id ?? r?.codRol ?? r?.cod_rol);
-      if (name === 'admin' || name === 'administrador' || id === 1) return true;
+      if (name === "admin" || name === "administrador" || id === 1) return true;
     }
   }
   return false;
@@ -253,7 +300,7 @@ function checkAdminShape(user: any): boolean {
 
 export async function isAdmin(
   user: any,
-  loader?: (sub: number) => Promise<any>,
+  loader?: (sub: number) => Promise<any>
 ): Promise<boolean> {
   if (checkAdminShape(user)) return true;
 
@@ -269,12 +316,22 @@ export async function isAdmin(
         role: full.role ?? full.rol ?? full?.Rol ?? full?.perfil,
         roles: full.roles ?? full?.Roles ?? [],
         rolId:
-          full.rolId ?? full.roleId ?? full.codRol ?? full.cod_rol ??
-          full.idRol ?? full.id_rol ?? full?.rol?.id ?? full?.rol?.codRol ?? full?.rol?.cod_rol,
+          full.rolId ??
+          full.roleId ??
+          full.codRol ??
+          full.cod_rol ??
+          full.idRol ??
+          full.id_rol ??
+          full?.rol?.id ??
+          full?.rol?.codRol ??
+          full?.rol?.cod_rol,
         nombreRol:
-          full.nombreRol ?? full.nombre_rol ??
-          full?.rol?.nombre ?? full?.rol?.nombre_rol ??
-          full?.role?.name ?? full?.role?.nombre,
+          full.nombreRol ??
+          full.nombre_rol ??
+          full?.rol?.nombre ??
+          full?.rol?.nombre_rol ??
+          full?.role?.name ??
+          full?.role?.nombre,
         isAdmin: normalizeBool(full.isAdmin ?? full.is_admin),
         codRol: full.codRol,
         cod_rol: full.cod_rol,
@@ -290,9 +347,11 @@ export async function isAdmin(
 
 function normalizeBool(v: any): boolean | undefined {
   if (v === true || v === false) return v;
-  const s = String(v ?? '').trim().toLowerCase();
-  if (s === '1' || s === 'true' || s === 'yes' || s === 'si') return true;
-  if (s === '0' || s === 'false' || s === 'no') return false;
+  const s = String(v ?? "")
+    .trim()
+    .toLowerCase();
+  if (s === "1" || s === "true" || s === "yes" || s === "si") return true;
+  if (s === "0" || s === "false" || s === "no") return false;
   const n = Number(s);
   if (!Number.isNaN(n)) return n === 1;
   return undefined;
