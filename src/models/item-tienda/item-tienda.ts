@@ -1,5 +1,6 @@
 import { Column, Entity, OneToMany, PrimaryGeneratedColumn } from "typeorm";
 import { ItemInventario } from "../item_inventario/item_inventario";
+import { Slot } from '../../common/slots.enum';
 
 @Entity("items_tienda")
 export class ItemTienda {
@@ -21,6 +22,9 @@ export class ItemTienda {
 
     // @Column({ name: "metadata_item" })
     // metadataItem: JSON;
+
+    @Column({ name: 'slot_item', type: 'enum', enum: Slot, nullable: true })
+    slotItem: Slot | null;
 
     @Column({name: "icono_item"})
     iconoItem:string;

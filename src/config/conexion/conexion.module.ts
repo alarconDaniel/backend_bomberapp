@@ -29,6 +29,7 @@ import { OpcionABCD } from 'src/models/pregunta/OpcionABCD';
 import { PreguntaRellenar } from 'src/models/pregunta/PreguntaRellenar';
 import { ReporteCargado } from 'src/models/pregunta/ReporteCargado';
 import { RespuestaFormularioUsuario } from 'src/models/respuesta/RespuestaFormularioUsuario';
+import { AvatarEquipado } from 'src/models/avatar-equipado/avatar-equipado';
 
 @Module({
   imports: [
@@ -48,7 +49,7 @@ import { RespuestaFormularioUsuario } from 'src/models/respuesta/RespuestaFormul
         Logro, UsuarioLogro, Trofeo, AuditoriaTrofeo, Archivo,
         RespuestaFormulario, RespuestaQuiz, CargoReto,Pregunta,RespuestaFormularioUsuario,
         RespuestaPreguntaUsuario,ParejaCorrecta,OpcionABCD,ItemEmparejamiento,PreguntaRellenar,
-        PreguntaReporte,ReporteCargado
+        PreguntaReporte,ReporteCargado,AvatarEquipado
       ],
     }),
   ],

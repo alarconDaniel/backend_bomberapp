@@ -24,6 +24,7 @@ import { UploadsModule } from './modules/public/uploads/uploads.module';
 import { PreguntasModule } from './modules/public/pregunta/preguntas.module';
 import { RespuestasModule } from './modules/public/respuesta/respuestas.module';
 import { CatalogosModule } from './modules/public/catalogos/catalogos.module';
+import { AvatarRopaModule } from './modules/public/avatar-ropa/avatar-ropa.module';
 
 @Module({
   imports: [
@@ -46,7 +47,7 @@ import { CatalogosModule } from './modules/public/catalogos/catalogos.module';
     PreguntasModule,
     RespuestasModule,
     ScheduleModule.forRoot(), // 👈 habilita cron jobs
-    CatalogosModule, 
+    CatalogosModule, AvatarRopaModule, 
   ],
   controllers: [AppController],
   providers: [

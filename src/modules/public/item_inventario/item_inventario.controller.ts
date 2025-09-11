@@ -72,7 +72,7 @@ function mapItemInventarioToResponse(row: any) {
     cantidad,
     fechaCompra,
     usuario,
-    item,
+    item,        // 👈 NUEVO
   } = row;
 
   return {
@@ -85,6 +85,7 @@ function mapItemInventarioToResponse(row: any) {
       descripcion: item?.desripcionItem,
       tipo: item?.tipoItem,
       icon: item?.iconoItem, 
+      slot: item?.slotItem ?? null, 
     },
     usuario: {
       codUsuario: usuario?.codUsuario,
