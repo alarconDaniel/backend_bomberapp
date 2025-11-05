@@ -1,0 +1,1 @@
+export const JWT_VERIFIER_OPTIONS = Symbol('JWT_VERIFIER_OPTIONS');
