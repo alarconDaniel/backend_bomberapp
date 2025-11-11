@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  identity-db:
+    image: mysql:8.0
+    container_name: identity-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: 123456
+      MYSQL_DATABASE: bd_auth
+    ports:
+      - "3550:3306"
+    volumes:
+      - ./db:/docker-entrypoint-initdb.d
+    networks:
+      - bomber-net
+
+  identity-service:
+    build: ./identity-service
+    container_name: identity-service
+    restart: unless-stopped
+    env_file:
+      - ./identity-service/.env.docker
+    depends_on:
+      - identity-db
+    ports:
+      - "8090:8090"
+    networks:
+      - bomber-net
+
+networks:
+  bomber-net:
+    driver: bridge
