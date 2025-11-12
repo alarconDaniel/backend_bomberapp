@@ -4,13 +4,10 @@ import { BadRequestException, createParamDecorator, ExecutionContext } from '@ne
 type CurrentUserMode = 'id' | 'raw' | undefined;
 
 export interface AuthUserShape {
-  sub?: number;
-  id?: number;
-  codUsuario?: number;
-  cod_usuario?: number;
+  sub?: number;      // lo que tú pones en el JWT
+  id?: number;       // por si algún día otro servicio lo normaliza así
   email?: string;
   rol?: string;
-  // agrega otros campos si tu JwtStrategy los expone
 }
 
 export const CurrentUser = createParamDecorator<CurrentUserMode>(
@@ -18,15 +15,17 @@ export const CurrentUser = createParamDecorator<CurrentUserMode>(
     const req = ctx.switchToHttp().getRequest();
     const u = (req.user || {}) as AuthUserShape;
 
-    // Normalizamos el id sin importar cómo venga
-    const id = Number(u.sub ?? u.id ?? u.codUsuario ?? u.cod_usuario);
+    // Normalizamos el id: preferimos sub, si no, id
+    const id = Number(u.sub ?? u.id);
 
     if (data === 'id') {
-      if (!id) throw new BadRequestException('Usuario no autenticado');
+      if (!id || Number.isNaN(id)) {
+        throw new BadRequestException('Usuario no autenticado');
+      }
       return id;
     }
 
     // Modo por defecto: objeto "raw" enriquecido con id normalizado
     return { ...u, id };
-  }
+  },
 );

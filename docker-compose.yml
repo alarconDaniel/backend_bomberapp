@@ -1,15 +1,17 @@
 version: '3.8'
 
 services:
-  identity-db:
+  db:
     image: mysql:8.0
-    container_name: identity-db
+    container_name: bomber-db
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: 123456
-      MYSQL_DATABASE: bd_auth
+      # MYSQL_DATABASE es opcional porque tus scripts crean los schemas
+      # MYSQL_DATABASE: bd_auth
     ports:
-      - "3550:3306"
+      # Solo si quieres conectar desde tu PC con Workbench, etc.
+      - "3307:3306"
     volumes:
       - ./db:/docker-entrypoint-initdb.d
     networks:
@@ -22,9 +24,37 @@ services:
     env_file:
       - ./identity-service/.env.docker
     depends_on:
-      - identity-db
+      - db
     ports:
       - "8090:8090"
+    networks:
+      - bomber-net
+
+  retos-service:
+    build: ./back
+    container_name: retos-service
+    restart: unless-stopped
+    env_file:
+      - ./back/.env.docker
+    depends_on:
+      - db
+    # No hace falta exponerlo al host; el gateway lo ve dentro de la red
+    ports:
+      - "3550:3550"
+    networks:
+      - bomber-net
+
+  api-gateway:
+    build: ./api-gateway
+    container_name: api-gateway
+    restart: unless-stopped
+    env_file:
+      - ./api-gateway/.env
+    depends_on:
+      - identity-service
+      - retos-service
+    ports:
+      - "7077:7077"
     networks:
       - bomber-net
 

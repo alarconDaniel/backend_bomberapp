@@ -51,6 +51,8 @@ import { AvatarEquipado } from 'src/models/avatar-equipado/avatar-equipado';
         RespuestaPreguntaUsuario,ParejaCorrecta,OpcionABCD,ItemEmparejamiento,PreguntaRellenar,
         PreguntaReporte,ReporteCargado,AvatarEquipado
       ],
+       retryAttempts: 30,
+       retryDelay: 8000, // 3s entre intentos
     }),
   ],
   exports: [TypeOrmModule],
