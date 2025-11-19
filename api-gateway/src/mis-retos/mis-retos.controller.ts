@@ -21,38 +21,86 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+
 import { mapAxiosError } from '../common/http-proxy.util';
 
+const RETOS_URL_CONFIG_KEY = 'RETOS_URL';
+const DEFAULT_RETOS_BASE_URL = 'http://localhost:3550';
+const SWAGGER_BEARER_AUTH_NAME = 'jwt-auth';
+
+const RETO_ESTADO_ENUM = [
+  'pendiente',
+  'asignado',
+  'en_progreso',
+  'completado',
+  'abandonado',
+  'vencido',
+] as const;
+type RetoEstado = (typeof RETO_ESTADO_ENUM)[number];
+
+const COMODIN_TIPO_ENUM = [
+  '50/50',
+  'mas_tiempo',
+  'protector_racha',
+  'double',
+  'ave_fenix',
+] as const;
+type ComodinTipo = (typeof COMODIN_TIPO_ENUM)[number];
+
 @ApiTags('Mis Retos')
-@ApiBearerAuth('jwt-auth')
+@ApiBearerAuth(SWAGGER_BEARER_AUTH_NAME)
 @Controller('mis-retos')
+/**
+ * Gateway controller that proxies "my challenges" requests
+ * to the retos-service, preserving authentication and request context.
+ */
 export class MisRetosGatewayController {
-  private readonly retosBase: string;
+  /**
+   * Base URL of retos-service used by this gateway.
+   */
+  private readonly retosBaseUrl: string;
 
   constructor(
-    private readonly http: HttpService,
-    private readonly cfg: ConfigService,
+    private readonly httpService: HttpService,
+    private readonly configService: ConfigService,
   ) {
-    this.retosBase =
-      this.cfg.get<string>('RETOS_URL') || 'http://localhost:3550';
+    this.retosBaseUrl =
+      this.configService.get<string>(RETOS_URL_CONFIG_KEY) ??
+      DEFAULT_RETOS_BASE_URL;
   }
 
-  private authHeaders(req: any) {
-    return { Authorization: req.headers['authorization'] || '' };
+  /**
+   * Builds authorization headers from the incoming request to forward
+   * the bearer token to retos-service.
+   */
+  private buildAuthHeaders(req: any): { Authorization: string } {
+    return {
+      Authorization: req.headers['authorization'] || '',
+    };
+  }
+
+  /**
+   * Builds the full URL to the retos-service endpoint.
+   */
+  private buildRetosUrl(path: string): string {
+    return `${this.retosBaseUrl}${path}`;
   }
 
   // ===========================
   // GET /mis-retos/dia
   // ===========================
   @Get('dia')
-  @ApiOperation({ summary: 'Listar mis retos por día' })
+  @ApiOperation({ summary: 'List my challenges by day' })
   @ApiQuery({ name: 'fecha', required: false })
-  async dia(@Req() req: any, @Query('fecha') fecha?: string) {
+  async dia(
+    @Req() req: any,
+    @Query('fecha') fecha?: string,
+  ): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.get(`${this.retosBase}/mis-retos/dia`, {
+        this.httpService.get(this.buildRetosUrl('/mis-retos/dia'), {
           params: { fecha },
-          headers: this.authHeaders(req),
+          headers: this.buildAuthHeaders(req),
         }),
       );
       return data;
@@ -65,28 +113,21 @@ export class MisRetosGatewayController {
   // GET /mis-retos/listar
   // ===========================
   @Get('listar')
-  @ApiOperation({ summary: 'Listar mis retos (por estado opcional)' })
+  @ApiOperation({ summary: 'List my challenges (optionally filtered by status)' })
   @ApiQuery({
     name: 'estado',
     required: false,
-    enum: ['pendiente', 'asignado', 'en_progreso', 'completado', 'abandonado', 'vencido'],
+    enum: RETO_ESTADO_ENUM,
   })
   async listar(
     @Req() req: any,
-    @Query('estado')
-    estado?:
-      | 'pendiente'
-      | 'asignado'
-      | 'en_progreso'
-      | 'completado'
-      | 'abandonado'
-      | 'vencido',
-  ) {
+    @Query('estado') estado?: RetoEstado,
+  ): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.get(`${this.retosBase}/mis-retos/listar`, {
+        this.httpService.get(this.buildRetosUrl('/mis-retos/listar'), {
           params: { estado },
-          headers: this.authHeaders(req),
+          headers: this.buildAuthHeaders(req),
         }),
       );
       return data;
@@ -99,12 +140,12 @@ export class MisRetosGatewayController {
   // GET /mis-retos/resumen
   // ===========================
   @Get('resumen')
-  @ApiOperation({ summary: 'Resumen de mis retos' })
-  async resumen(@Req() req: any) {
+  @ApiOperation({ summary: 'Get a summary of my challenges' })
+  async resumen(@Req() req: any): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.get(`${this.retosBase}/mis-retos/resumen`, {
-          headers: this.authHeaders(req),
+        this.httpService.get(this.buildRetosUrl('/mis-retos/resumen'), {
+          headers: this.buildAuthHeaders(req),
         }),
       );
       return data;
@@ -117,7 +158,7 @@ export class MisRetosGatewayController {
   // PATCH /mis-retos/estado
   // ===========================
   @Patch('estado')
-  @ApiOperation({ summary: 'Cambiar estado de un reto propio' })
+  @ApiOperation({ summary: 'Change the status of one of my challenges' })
   @ApiBody({
     schema: {
       type: 'object',
@@ -131,11 +172,11 @@ export class MisRetosGatewayController {
       required: ['codReto', 'estado'],
     },
   })
-  async cambiarEstado(@Req() req: any, @Body() body: any) {
+  async cambiarEstado(@Req() req: any, @Body() body: any): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.patch(`${this.retosBase}/mis-retos/estado`, body, {
-          headers: this.authHeaders(req),
+        this.httpService.patch(this.buildRetosUrl('/mis-retos/estado'), body, {
+          headers: this.buildAuthHeaders(req),
         }),
       );
       return data;
@@ -148,7 +189,7 @@ export class MisRetosGatewayController {
   // POST /mis-retos/abrir
   // ===========================
   @Post('abrir')
-  @ApiOperation({ summary: 'Abrir un reto (empezar resolución)' })
+  @ApiOperation({ summary: 'Open a challenge (start solving it)' })
   @ApiBody({
     schema: {
       type: 'object',
@@ -156,12 +197,16 @@ export class MisRetosGatewayController {
       required: ['codReto'],
     },
   })
-  async abrir(@Req() req: any, @Body() body: any) {
+  async abrir(@Req() req: any, @Body() body: any): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.post(`${this.retosBase}/mis-retos/abrir`, body, {
-          headers: this.authHeaders(req),
-        }),
+        this.httpService.post(
+          this.buildRetosUrl('/mis-retos/abrir'),
+          body,
+          {
+            headers: this.buildAuthHeaders(req),
+          },
+        ),
       );
       return data;
     } catch (e) {
@@ -173,7 +218,7 @@ export class MisRetosGatewayController {
   // POST /mis-retos/:codUsuarioReto/quiz/responder
   // ===========================
   @Post(':codUsuarioReto/quiz/responder')
-  @ApiOperation({ summary: 'Responder una pregunta de quiz' })
+  @ApiOperation({ summary: 'Answer a quiz question for a challenge' })
   @ApiParam({ name: 'codUsuarioReto', type: Number })
   @ApiBody({
     schema: {
@@ -191,18 +236,20 @@ export class MisRetosGatewayController {
     @Req() req: any,
     @Param('codUsuarioReto', ParseIntPipe) codUsuarioReto: number,
     @Body() body: any,
-  ) {
+  ): Promise<unknown> {
     try {
       const payload = {
         ...body,
         codUsuarioReto: body.codUsuarioReto ?? codUsuarioReto,
       };
       const { data } = await firstValueFrom(
-        this.http.post(
-          `${this.retosBase}/mis-retos/${codUsuarioReto}/quiz/responder`,
+        this.httpService.post(
+          this.buildRetosUrl(
+            `/mis-retos/${codUsuarioReto}/quiz/responder`,
+          ),
           payload,
           {
-            headers: this.authHeaders(req),
+            headers: this.buildAuthHeaders(req),
           },
         ),
       );
@@ -216,7 +263,7 @@ export class MisRetosGatewayController {
   // POST /mis-retos/:codUsuarioReto/form/enviar
   // ===========================
   @Post(':codUsuarioReto/form/enviar')
-  @ApiOperation({ summary: 'Enviar formulario asociado a un reto' })
+  @ApiOperation({ summary: 'Submit a form associated with a challenge' })
   @ApiParam({ name: 'codUsuarioReto', type: Number })
   @ApiBody({
     schema: {
@@ -233,18 +280,20 @@ export class MisRetosGatewayController {
     @Req() req: any,
     @Param('codUsuarioReto', ParseIntPipe) codUsuarioReto: number,
     @Body() body: any,
-  ) {
+  ): Promise<unknown> {
     try {
       const payload = {
         ...body,
         codUsuarioReto: body.codUsuarioReto ?? codUsuarioReto,
       };
       const { data } = await firstValueFrom(
-        this.http.post(
-          `${this.retosBase}/mis-retos/${codUsuarioReto}/form/enviar`,
+        this.httpService.post(
+          this.buildRetosUrl(
+            `/mis-retos/${codUsuarioReto}/form/enviar`,
+          ),
           payload,
           {
-            headers: this.authHeaders(req),
+            headers: this.buildAuthHeaders(req),
           },
         ),
       );
@@ -258,7 +307,7 @@ export class MisRetosGatewayController {
   // POST /mis-retos/:codUsuarioReto/finalizar
   // ===========================
   @Post(':codUsuarioReto/finalizar')
-  @ApiOperation({ summary: 'Finalizar la resolución de un reto' })
+  @ApiOperation({ summary: 'Finish solving a challenge' })
   @ApiParam({ name: 'codUsuarioReto', type: Number })
   @ApiBody({
     schema: {
@@ -273,18 +322,20 @@ export class MisRetosGatewayController {
     @Req() req: any,
     @Param('codUsuarioReto', ParseIntPipe) codUsuarioReto: number,
     @Body() body: any,
-  ) {
+  ): Promise<unknown> {
     try {
       const payload = {
         ...body,
         codUsuarioReto: body.codUsuarioReto ?? codUsuarioReto,
       };
       const { data } = await firstValueFrom(
-        this.http.post(
-          `${this.retosBase}/mis-retos/${codUsuarioReto}/finalizar`,
+        this.httpService.post(
+          this.buildRetosUrl(
+            `/mis-retos/${codUsuarioReto}/finalizar`,
+          ),
           payload,
           {
-            headers: this.authHeaders(req),
+            headers: this.buildAuthHeaders(req),
           },
         ),
       );
@@ -298,7 +349,7 @@ export class MisRetosGatewayController {
   // POST /mis-retos/:codUsuarioReto/comodines/usar
   // ===========================
   @Post(':codUsuarioReto/comodines/usar')
-  @ApiOperation({ summary: 'Usar comodín en un reto' })
+  @ApiOperation({ summary: 'Use a power-up (comodín) in a challenge' })
   @ApiParam({ name: 'codUsuarioReto', type: Number })
   @ApiBody({
     schema: {
@@ -320,18 +371,28 @@ export class MisRetosGatewayController {
     @Req() req: any,
     @Param('codUsuarioReto', ParseIntPipe) codUsuarioReto: number,
     @Body() body: any,
-  ) {
+  ): Promise<unknown> {
     try {
-      const payload = {
+      const payload: {
+        codUsuarioReto: number;
+        codPregunta?: number;
+        tipo: ComodinTipo;
+        segundos?: number;
+        hasta?: string;
+        [key: string]: unknown;
+      } = {
         ...body,
         codUsuarioReto: body.codUsuarioReto ?? codUsuarioReto,
       };
+
       const { data } = await firstValueFrom(
-        this.http.post(
-          `${this.retosBase}/mis-retos/${codUsuarioReto}/comodines/usar`,
+        this.httpService.post(
+          this.buildRetosUrl(
+            `/mis-retos/${codUsuarioReto}/comodines/usar`,
+          ),
           payload,
           {
-            headers: this.authHeaders(req),
+            headers: this.buildAuthHeaders(req),
           },
         ),
       );
@@ -345,18 +406,20 @@ export class MisRetosGatewayController {
   // GET /mis-retos/:codUsuarioReto/preguntas
   // ===========================
   @Get(':codUsuarioReto/preguntas')
-  @ApiOperation({ summary: 'Preguntas de un reto asignado al usuario' })
+  @ApiOperation({ summary: 'Get questions for a user challenge assignment' })
   @ApiParam({ name: 'codUsuarioReto', type: Number })
   async preguntas(
     @Req() req: any,
     @Param('codUsuarioReto', ParseIntPipe) codUsuarioReto: number,
-  ) {
+  ): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.get(
-          `${this.retosBase}/mis-retos/${codUsuarioReto}/preguntas`,
+        this.httpService.get(
+          this.buildRetosUrl(
+            `/mis-retos/${codUsuarioReto}/preguntas`,
+          ),
           {
-            headers: this.authHeaders(req),
+            headers: this.buildAuthHeaders(req),
           },
         ),
       );

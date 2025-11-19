@@ -1,6 +1,6 @@
 // src/app.module.ts
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { HttpModule } from '@nestjs/axios';
 import { JwtModule } from '@nestjs/jwt';
 import { APP_GUARD } from '@nestjs/core';
@@ -14,13 +14,17 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RetoModule } from './reto/reto.module';
 import { MisRetosGatewayModule } from './mis-retos/mis-retos.module';
 
+const DEFAULT_JWT_SECRET = 'dev_fallback_secret';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     HttpModule,
-    JwtModule.register({
-      secret: process.env.JWT_SECRET || 'dev_fallback_secret',
+    JwtModule.registerAsync({
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        secret: configService.get<string>('JWT_SECRET') ?? DEFAULT_JWT_SECRET,
+      }),
     }),
     RetoModule,
     MisRetosGatewayModule,
@@ -34,7 +38,7 @@ import { MisRetosGatewayModule } from './mis-retos/mis-retos.module';
     JwtStrategy,
     {
       provide: APP_GUARD,
-      useClass: JwtAuthGuard, // guard global
+      useClass: JwtAuthGuard, // Ensures JWT authentication is applied globally to all routes.
     },
   ],
 })

@@ -1,4 +1,3 @@
-// src/auth/auth.gateway.controller.ts
 import {
   Body,
   Controller,
@@ -15,6 +14,9 @@ import { Public } from 'src/auth/decorators/public.decorator';
 import { mapAxiosError } from 'src/common/http-proxy.util';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 
+/**
+ * DTO used to authenticate a user against the identity-service.
+ */
 class LoginDto {
   email: string;
   password: string;
@@ -23,6 +25,10 @@ class LoginDto {
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthGatewayController {
+  /**
+   * Base URL of the identity-service used by this gateway.
+   * Falls back to a local URL for development environments.
+   */
   private readonly identityBase: string;
 
   constructor(
@@ -34,7 +40,7 @@ export class AuthGatewayController {
 
   @Public()
   @Post('login')
-  @ApiOperation({ summary: 'Login contra identity-service' })
+  @ApiOperation({ summary: 'Authenticate user against identity-service' })
   @ApiBody({ type: LoginDto })
   async login(@Body() body: LoginDto) {
     try {
@@ -49,7 +55,7 @@ export class AuthGatewayController {
 
   @Public()
   @Post('refresh')
-  @ApiOperation({ summary: 'Refrescar access/refresh token' })
+  @ApiOperation({ summary: 'Refresh access and refresh tokens using identity-service' })
   async refresh(@Body() body: { refresh_token: string }) {
     try {
       const { data } = await firstValueFrom(
@@ -63,15 +69,17 @@ export class AuthGatewayController {
 
   @Get('me')
   @ApiBearerAuth('jwt-auth')
-  @ApiOperation({ summary: 'Ver payload del token actual' })
+  @ApiOperation({ summary: 'Return the current JWT payload associated with the request' })
   async me(@CurrentUser() user: any) {
-    // ni siquiera necesitamos ir al microservicio; el payload ya está en el token
+    // We do not need to call the identity microservice; the payload already lives in the token.
     return user;
   }
 
   @Public()
   @Post('logout')
-  @ApiOperation({ summary: 'Logout (invalidar refresh token) en identity-service' })
+  @ApiOperation({
+    summary: 'Logout by invalidating the refresh token in identity-service',
+  })
   async logout(@Body() body: { refresh_token: string }) {
     try {
       const { data } = await firstValueFrom(

@@ -22,31 +22,65 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+
 import { mapAxiosError } from '../common/http-proxy.util';
 
+const RETOS_URL_CONFIG_KEY = 'RETOS_URL';
+const DEFAULT_RETOS_BASE_URL = 'http://retos-service:3550';
+const SWAGGER_BEARER_AUTH_NAME = 'jwt-auth';
+
+/**
+ * Gateway controller that exposes "reto" endpoints and
+ * forwards them to the retos-service, preserving authentication context.
+ */
 @ApiTags('Retos')
-@ApiBearerAuth('jwt-auth')
+@ApiBearerAuth(SWAGGER_BEARER_AUTH_NAME)
 @Controller('reto')
 export class RetoGatewayController {
-  private readonly retosBase: string;
+  /**
+   * Base URL of retos-service used by this gateway.
+   */
+  private readonly retosBaseUrl: string;
 
   constructor(
-    private readonly http: HttpService,
-    private readonly cfg: ConfigService,
+    private readonly httpService: HttpService,
+    private readonly configService: ConfigService,
   ) {
-    this.retosBase = this.cfg.get<string>('RETOS_URL') || 'http://retos-service:3550';
+    this.retosBaseUrl =
+      this.configService.get<string>(RETOS_URL_CONFIG_KEY) ??
+      DEFAULT_RETOS_BASE_URL;
+  }
+
+  /**
+   * Builds authorization headers from the incoming request to forward
+   * the bearer token to retos-service.
+   */
+  private buildAuthHeaders(req: any): { Authorization: string } {
+    return {
+      Authorization: req.headers['authorization'] || '',
+    };
+  }
+
+  /**
+   * Builds the full URL to the retos-service endpoint.
+   */
+  private buildRetosUrl(path: string): string {
+    return `${this.retosBaseUrl}${path}`;
   }
 
   // =================== LISTAR / VER ===================
 
   @Get('listar-dto')
-  @ApiOperation({ summary: 'Listar retos (DTO compacto)' })
-  async listarDto(@Req() req: any) {
+  @ApiOperation({ summary: 'List challenges (compact DTO)' })
+  async listarDto(@Req() req: any): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.get(`${this.retosBase}/reto/listar-dto`, {
-          headers: { Authorization: req.headers['authorization'] || '' },
-        }),
+        this.httpService.get(
+          this.buildRetosUrl('/reto/listar-dto'),
+          {
+            headers: this.buildAuthHeaders(req),
+          },
+        ),
       );
       return data;
     } catch (e) {
@@ -55,13 +89,16 @@ export class RetoGatewayController {
   }
 
   @Get('listar')
-  @ApiOperation({ summary: 'Listar retos (raw)' })
-  async listar(@Req() req: any) {
+  @ApiOperation({ summary: 'List challenges (raw)' })
+  async listar(@Req() req: any): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.get(`${this.retosBase}/reto/listar`, {
-          headers: { Authorization: req.headers['authorization'] || '' },
-        }),
+        this.httpService.get(
+          this.buildRetosUrl('/reto/listar'),
+          {
+            headers: this.buildAuthHeaders(req),
+          },
+        ),
       );
       return data;
     } catch (e) {
@@ -70,17 +107,20 @@ export class RetoGatewayController {
   }
 
   @Get('ver/:cod')
-  @ApiOperation({ summary: 'Ver reto por ID (versión simple)' })
+  @ApiOperation({ summary: 'View challenge by id (simple version)' })
   @ApiParam({ name: 'cod', type: Number })
   async ver(
     @Req() req: any,
     @Param('cod', ParseIntPipe) cod: number,
-  ) {
+  ): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.get(`${this.retosBase}/reto/ver/${cod}`, {
-          headers: { Authorization: req.headers['authorization'] || '' },
-        }),
+        this.httpService.get(
+          this.buildRetosUrl(`/reto/ver/${cod}`),
+          {
+            headers: this.buildAuthHeaders(req),
+          },
+        ),
       );
       return data;
     } catch (e) {
@@ -89,17 +129,20 @@ export class RetoGatewayController {
   }
 
   @Get('ver/full/:cod')
-  @ApiOperation({ summary: 'Ver reto con detalle completo' })
+  @ApiOperation({ summary: 'View challenge with full detail' })
   @ApiParam({ name: 'cod', type: Number })
   async verFull(
     @Req() req: any,
     @Param('cod', ParseIntPipe) cod: number,
-  ) {
+  ): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.get(`${this.retosBase}/reto/ver/full/${cod}`, {
-          headers: { Authorization: req.headers['authorization'] || '' },
-        }),
+        this.httpService.get(
+          this.buildRetosUrl(`/reto/ver/full/${cod}`),
+          {
+            headers: this.buildAuthHeaders(req),
+          },
+        ),
       );
       return data;
     } catch (e) {
@@ -107,23 +150,26 @@ export class RetoGatewayController {
     }
   }
 
-  // =================== VISTAS DE DÍA / STATS ===================
+  // =================== VIEWS BY DAY / STATS ===================
 
   @Get('dia')
-  @ApiOperation({ summary: 'Retos del día por usuario' })
+  @ApiOperation({ summary: 'Challenges of the day per user' })
   @ApiQuery({ name: 'fecha', required: false })
   @ApiQuery({ name: 'usuario', required: false })
   async dia(
     @Req() req: any,
     @Query('fecha') fecha?: string,
     @Query('usuario') usuario?: string,
-  ) {
+  ): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.get(`${this.retosBase}/reto/dia`, {
-          params: { fecha, usuario },
-          headers: { Authorization: req.headers['authorization'] || '' },
-        }),
+        this.httpService.get(
+          this.buildRetosUrl('/reto/dia'),
+          {
+            params: { fecha, usuario },
+            headers: this.buildAuthHeaders(req),
+          },
+        ),
       );
       return data;
     } catch (e) {
@@ -132,20 +178,23 @@ export class RetoGatewayController {
   }
 
   @Get('progreso-dia')
-  @ApiOperation({ summary: 'Progreso agregado del día' })
+  @ApiOperation({ summary: 'Aggregated daily progress' })
   @ApiQuery({ name: 'fecha', required: false })
   @ApiQuery({ name: 'usuario', required: false })
   async progresoDia(
     @Req() req: any,
     @Query('fecha') fecha?: string,
     @Query('usuario') usuario?: string,
-  ) {
+  ): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.get(`${this.retosBase}/reto/progreso-dia`, {
-          params: { fecha, usuario },
-          headers: { Authorization: req.headers['authorization'] || '' },
-        }),
+        this.httpService.get(
+          this.buildRetosUrl('/reto/progreso-dia'),
+          {
+            params: { fecha, usuario },
+            headers: this.buildAuthHeaders(req),
+          },
+        ),
       );
       return data;
     } catch (e) {
@@ -154,18 +203,21 @@ export class RetoGatewayController {
   }
 
   @Get('operarios-dia')
-  @ApiOperation({ summary: 'Operarios del día con stats' })
+  @ApiOperation({ summary: 'Operators of the day with stats' })
   @ApiQuery({ name: 'fecha', required: false })
   async operariosDia(
     @Req() req: any,
     @Query('fecha') fecha?: string,
-  ) {
+  ): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.get(`${this.retosBase}/reto/operarios-dia`, {
-          params: { fecha },
-          headers: { Authorization: req.headers['authorization'] || '' },
-        }),
+        this.httpService.get(
+          this.buildRetosUrl('/reto/operarios-dia'),
+          {
+            params: { fecha },
+            headers: this.buildAuthHeaders(req),
+          },
+        ),
       );
       return data;
     } catch (e) {
@@ -174,13 +226,16 @@ export class RetoGatewayController {
   }
 
   @Get('operarios-count')
-  @ApiOperation({ summary: 'Total de operarios' })
-  async operariosCount(@Req() req: any) {
+  @ApiOperation({ summary: 'Total number of operators' })
+  async operariosCount(@Req() req: any): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.get(`${this.retosBase}/reto/operarios-count`, {
-          headers: { Authorization: req.headers['authorization'] || '' },
-        }),
+        this.httpService.get(
+          this.buildRetosUrl('/reto/operarios-count'),
+          {
+            headers: this.buildAuthHeaders(req),
+          },
+        ),
       );
       return data;
     } catch (e) {
@@ -189,18 +244,21 @@ export class RetoGatewayController {
   }
 
   @Get('participacion-semanal')
-  @ApiOperation({ summary: 'Participación semanal' })
+  @ApiOperation({ summary: 'Weekly participation' })
   @ApiQuery({ name: 'fecha', required: false })
   async participacionSemanal(
     @Req() req: any,
     @Query('fecha') fecha?: string,
-  ) {
+  ): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.get(`${this.retosBase}/reto/participacion-semanal`, {
-          params: { fecha },
-          headers: { Authorization: req.headers['authorization'] || '' },
-        }),
+        this.httpService.get(
+          this.buildRetosUrl('/reto/participacion-semanal'),
+          {
+            params: { fecha },
+            headers: this.buildAuthHeaders(req),
+          },
+        ),
       );
       return data;
     } catch (e) {
@@ -208,23 +266,23 @@ export class RetoGatewayController {
     }
   }
 
-  // =================== ENDPOINTS DE CRON ===================
+  // =================== CRON ENDPOINTS ===================
 
   @Post('cron/asignar')
-  @ApiOperation({ summary: 'Ejecutar cron: asignar retos automáticos' })
+  @ApiOperation({ summary: 'Run cron: assign automatic challenges' })
   @ApiQuery({ name: 'fecha', required: false })
   async cronAsignar(
     @Req() req: any,
     @Query('fecha') fecha?: string,
-  ) {
+  ): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.post(
-          `${this.retosBase}/reto/cron/asignar`,
+        this.httpService.post(
+          this.buildRetosUrl('/reto/cron/asignar'),
           {},
           {
             params: { fecha },
-            headers: { Authorization: req.headers['authorization'] || '' },
+            headers: this.buildAuthHeaders(req),
           },
         ),
       );
@@ -235,20 +293,20 @@ export class RetoGatewayController {
   }
 
   @Post('cron/vencer')
-  @ApiOperation({ summary: 'Ejecutar cron: marcar retos vencidos' })
+  @ApiOperation({ summary: 'Run cron: mark expired challenges' })
   @ApiQuery({ name: 'fecha', required: false })
   async cronVencer(
     @Req() req: any,
     @Query('fecha') fecha?: string,
-  ) {
+  ): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.post(
-          `${this.retosBase}/reto/cron/vencer`,
+        this.httpService.post(
+          this.buildRetosUrl('/reto/cron/vencer'),
           {},
           {
             params: { fecha },
-            headers: { Authorization: req.headers['authorization'] || '' },
+            headers: this.buildAuthHeaders(req),
           },
         ),
       );
@@ -259,18 +317,21 @@ export class RetoGatewayController {
   }
 
   @Get('cron/dry-run')
-  @ApiOperation({ summary: 'Ver candidatos de cron (dry run)' })
+  @ApiOperation({ summary: 'Preview cron candidates (dry run)' })
   @ApiQuery({ name: 'fecha', required: false })
   async cronDryRun(
     @Req() req: any,
     @Query('fecha') fecha?: string,
-  ) {
+  ): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.get(`${this.retosBase}/reto/cron/dry-run`, {
-          params: { fecha },
-          headers: { Authorization: req.headers['authorization'] || '' },
-        }),
+        this.httpService.get(
+          this.buildRetosUrl('/reto/cron/dry-run'),
+          {
+            params: { fecha },
+            headers: this.buildAuthHeaders(req),
+          },
+        ),
       );
       return data;
     } catch (e) {
@@ -281,14 +342,18 @@ export class RetoGatewayController {
   // =================== CRUD / QUIZ ===================
 
   @Post('crear')
-  @ApiOperation({ summary: 'Crear reto (admin)' })
-  @ApiBody({ description: 'Payload de reto genérico o quiz', required: true })
-  async crear(@Req() req: any, @Body() body: any) {
+  @ApiOperation({ summary: 'Create challenge (admin)' })
+  @ApiBody({ description: 'Generic challenge or quiz payload', required: true })
+  async crear(@Req() req: any, @Body() body: any): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.post(`${this.retosBase}/reto/crear`, body, {
-          headers: { Authorization: req.headers['authorization'] || '' },
-        }),
+        this.httpService.post(
+          this.buildRetosUrl('/reto/crear'),
+          body,
+          {
+            headers: this.buildAuthHeaders(req),
+          },
+        ),
       );
       return data;
     } catch (e) {
@@ -297,14 +362,18 @@ export class RetoGatewayController {
   }
 
   @Post('crear-quiz')
-  @ApiOperation({ summary: 'Crear quiz con estructura completa (admin)' })
-  @ApiBody({ description: 'Payload completo del quiz', required: true })
-  async crearQuiz(@Req() req: any, @Body() body: any) {
+  @ApiOperation({ summary: 'Create quiz with full structure (admin)' })
+  @ApiBody({ description: 'Full quiz payload', required: true })
+  async crearQuiz(@Req() req: any, @Body() body: any): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.post(`${this.retosBase}/reto/crear-quiz`, body, {
-          headers: { Authorization: req.headers['authorization'] || '' },
-        }),
+        this.httpService.post(
+          this.buildRetosUrl('/reto/crear-quiz'),
+          body,
+          {
+            headers: this.buildAuthHeaders(req),
+          },
+        ),
       );
       return data;
     } catch (e) {
@@ -313,14 +382,18 @@ export class RetoGatewayController {
   }
 
   @Put('modificar')
-  @ApiOperation({ summary: 'Modificar reto (admin)' })
-  @ApiBody({ description: 'Reto con codReto + cambios', required: true })
-  async modificar(@Req() req: any, @Body() body: any) {
+  @ApiOperation({ summary: 'Modify challenge (admin)' })
+  @ApiBody({ description: 'Challenge with codReto + changes', required: true })
+  async modificar(@Req() req: any, @Body() body: any): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.put(`${this.retosBase}/reto/modificar`, body, {
-          headers: { Authorization: req.headers['authorization'] || '' },
-        }),
+        this.httpService.put(
+          this.buildRetosUrl('/reto/modificar'),
+          body,
+          {
+            headers: this.buildAuthHeaders(req),
+          },
+        ),
       );
       return data;
     } catch (e) {
@@ -329,14 +402,21 @@ export class RetoGatewayController {
   }
 
   @Put('quiz/sobrescribir')
-  @ApiOperation({ summary: 'Sobrescribir preguntas de un quiz' })
-  @ApiBody({ description: 'Body con codReto y preguntas[]', required: true })
-  async sobrescribirQuiz(@Req() req: any, @Body() body: any) {
+  @ApiOperation({ summary: 'Overwrite quiz questions' })
+  @ApiBody({
+    description: 'Body with codReto and preguntas[]',
+    required: true,
+  })
+  async sobrescribirQuiz(@Req() req: any, @Body() body: any): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.put(`${this.retosBase}/reto/quiz/sobrescribir`, body, {
-          headers: { Authorization: req.headers['authorization'] || '' },
-        }),
+        this.httpService.put(
+          this.buildRetosUrl('/reto/quiz/sobrescribir'),
+          body,
+          {
+            headers: this.buildAuthHeaders(req),
+          },
+        ),
       );
       return data;
     } catch (e) {
@@ -345,17 +425,20 @@ export class RetoGatewayController {
   }
 
   @Delete('borrar/:codReto')
-  @ApiOperation({ summary: 'Borrar reto (admin)' })
+  @ApiOperation({ summary: 'Delete challenge (admin)' })
   @ApiParam({ name: 'codReto', type: Number })
   async borrar(
     @Req() req: any,
     @Param('codReto', ParseIntPipe) codReto: number,
-  ) {
+  ): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.delete(`${this.retosBase}/reto/borrar/${codReto}`, {
-          headers: { Authorization: req.headers['authorization'] || '' },
-        }),
+        this.httpService.delete(
+          this.buildRetosUrl(`/reto/borrar/${codReto}`),
+          {
+            headers: this.buildAuthHeaders(req),
+          },
+        ),
       );
       return data;
     } catch (e) {
@@ -363,20 +446,23 @@ export class RetoGatewayController {
     }
   }
 
-  // =================== DETALLES / CARGOS ===================
+  // =================== DETAILS / ROLES ===================
 
   @Get(':cod/cargos')
-  @ApiOperation({ summary: 'Ver cargos asociados a un reto' })
+  @ApiOperation({ summary: 'View roles (cargos) associated with a challenge' })
   @ApiParam({ name: 'cod', type: Number })
   async cargosDeReto(
     @Req() req: any,
     @Param('cod', ParseIntPipe) cod: number,
-  ) {
+  ): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.get(`${this.retosBase}/reto/${cod}/cargos`, {
-          headers: { Authorization: req.headers['authorization'] || '' },
-        }),
+        this.httpService.get(
+          this.buildRetosUrl(`/reto/${cod}/cargos`),
+          {
+            headers: this.buildAuthHeaders(req),
+          },
+        ),
       );
       return data;
     } catch (e) {
@@ -385,17 +471,20 @@ export class RetoGatewayController {
   }
 
   @Get(':codReto')
-  @ApiOperation({ summary: 'Detalle de reto (metadata principal)' })
+  @ApiOperation({ summary: 'Challenge details (main metadata)' })
   @ApiParam({ name: 'codReto', type: Number })
   async detalle(
     @Req() req: any,
     @Param('codReto', ParseIntPipe) codReto: number,
-  ) {
+  ): Promise<unknown> {
     try {
       const { data } = await firstValueFrom(
-        this.http.get(`${this.retosBase}/reto/${codReto}`, {
-          headers: { Authorization: req.headers['authorization'] || '' },
-        }),
+        this.httpService.get(
+          this.buildRetosUrl(`/reto/${codReto}`),
+          {
+            headers: this.buildAuthHeaders(req),
+          },
+        ),
       );
       return data;
     } catch (e) {

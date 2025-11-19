@@ -6,13 +6,8 @@ import {
   Post,
   UnauthorizedException,
 } from '@nestjs/common';
-import { AuthService } from './auth.service';
-import { LoginDto } from './dto/login.dto';
-import { Public } from './decorators/public.decorator';
 import { JwtService } from '@nestjs/jwt';
-import { UsuarioService } from 'src/modules/usuario/usuario.service';
 import { ConfigService } from '@nestjs/config';
-import { CurrentUser } from './decorators/current-user.decorator';
 
 import {
   ApiBearerAuth,
@@ -21,39 +16,63 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+
+import { AuthService } from './auth.service';
+import { LoginDto } from './dto/login.dto';
+import { Public } from './decorators/public.decorator';
+import { UsuarioService } from 'src/modules/usuario/usuario.service';
+import { CurrentUser, AuthUserShape } from './decorators/current-user.decorator';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 
+const JWT_SECRET_CONFIG_KEY = 'JWT_SECRET';
+const DEFAULT_JWT_SECRET = 'dev_fallback_secret';
+const SWAGGER_BEARER_AUTH_NAME = 'jwt-auth';
+const INVALID_REFRESH_TOKEN_MESSAGE = 'Refresh inválido';
 
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
   constructor(
-    private readonly auth: AuthService,
-    private readonly jwt: JwtService,
-    private readonly users: UsuarioService,
-    private readonly cfg: ConfigService,
+    private readonly authService: AuthService,
+    private readonly jwtService: JwtService,
+    private readonly usuarioService: UsuarioService,
+    private readonly configService: ConfigService,
   ) {}
+
+  /**
+   * Returns the secret used to validate JWT tokens.
+   * Falls back to a development secret when not configured.
+   */
+  private getJwtSecret(): string {
+    return (
+      this.configService.get<string>(JWT_SECRET_CONFIG_KEY) ??
+      DEFAULT_JWT_SECRET
+    );
+  }
 
   @Public()
   @Post('login')
-  @ApiOperation({ summary: 'Iniciar sesión' })
+  @ApiOperation({ summary: 'Authenticate a user and issue tokens' })
   @ApiBody({ type: LoginDto })
   @ApiResponse({
     status: 201,
     description:
-      'Login correcto. Devuelve access_token, refresh_token y datos básicos del usuario',
+      'Successful login. Returns access_token, refresh_token and basic user data.',
   })
-  @ApiResponse({ status: 401, description: 'Credenciales inválidas' })
-  async login(@Body() dto: LoginDto) {
-    const user = await this.auth.validateUser(dto.email, dto.password);
-    const tokens = await this.auth.signTokens(
+  @ApiResponse({ status: 401, description: 'Invalid credentials' })
+  async login(@Body() dto: LoginDto): Promise<unknown> {
+    const user = await this.authService.validateUser(dto.email, dto.password);
+
+    const tokens = await this.authService.signTokens(
       user.codUsuario,
       user.correoUsuario,
     );
-    await this.users.setRefreshTokenHash(
+
+    await this.usuarioService.setRefreshTokenHash(
       user.codUsuario,
-      await this.auth.hashPassword(tokens.refresh_token),
+      await this.authService.hashPassword(tokens.refresh_token),
     );
+
     return {
       user: {
         id: user.codUsuario,
@@ -66,51 +85,72 @@ export class AuthController {
 
   @Public()
   @Post('refresh')
-  @ApiOperation({ summary: 'Rotar tokens usando un refresh_token válido' })
+  @ApiOperation({ summary: 'Rotate tokens using a valid refresh_token' })
   @ApiBody({ type: RefreshTokenDto })
   @ApiResponse({
     status: 201,
     description:
-      'Devuelve nuevo access_token y refresh_token si el refresh es válido',
+      'Returns a new access_token and refresh_token if the provided refresh_token is valid.',
   })
-  @ApiResponse({ status: 401, description: 'Refresh inválido o usuario no encontrado' })
-  async refresh(@Body() body: RefreshTokenDto) {
-    const decoded = await this.jwt.verifyAsync(body.refresh_token, {
-      secret: this.cfg.get<string>('JWT_SECRET') || 'dev_fallback_secret',
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid refresh token or user not found',
+  })
+  async refresh(@Body() body: RefreshTokenDto): Promise<unknown> {
+    const decoded = await this.jwtService.verifyAsync(body.refresh_token, {
+      secret: this.getJwtSecret(),
     });
-    const user = await this.users.findByCorreo(decoded.email);
-    if (!user) throw new UnauthorizedException();
 
-    const ok = await this.users.verifyRefreshToken(
+    const user = await this.usuarioService.findByCorreo(decoded.email);
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+
+    const isRefreshValid = await this.usuarioService.verifyRefreshToken(
       user.codUsuario,
       body.refresh_token,
     );
-    if (!ok) throw new UnauthorizedException('Refresh inválido');
 
-    return this.auth.rotateRefreshToken(user, body.refresh_token);
+    if (!isRefreshValid) {
+      throw new UnauthorizedException(INVALID_REFRESH_TOKEN_MESSAGE);
+    }
+
+    return this.authService.rotateRefreshToken(user, body.refresh_token);
   }
 
   @Get('me')
-  @ApiBearerAuth('jwt-auth')
-  @ApiOperation({ summary: 'Obtener información básica del usuario autenticado' })
-  @ApiResponse({ status: 200, description: 'Usuario autenticado encontrado' })
-  @ApiResponse({ status: 401, description: 'Token inválido o ausente' })
-  me(@CurrentUser() user: any) {
-    // user = payload del JWT (sub, email, etc) + id normalizado
+  @ApiBearerAuth(SWAGGER_BEARER_AUTH_NAME)
+  @ApiOperation({
+    summary: 'Get basic information about the authenticated user',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Authenticated user information returned successfully',
+  })
+  @ApiResponse({ status: 401, description: 'Invalid or missing token' })
+  me(@CurrentUser() user: AuthUserShape): AuthUserShape {
+    // `user` is the JWT payload (sub, email, rol, etc.) plus a normalized `id`.
     return user;
   }
 
   @Public()
   @Post('logout')
-  @ApiOperation({ summary: 'Cerrar sesión (invalidar refresh_token)' })
+  @ApiOperation({ summary: 'Logout by invalidating the refresh_token' })
   @ApiBody({ type: RefreshTokenDto })
-  @ApiResponse({ status: 201, description: 'Refresh invalidado correctamente' })
-  async logout(@Body() body: RefreshTokenDto) {
-    const decoded = await this.jwt.verifyAsync(body.refresh_token, {
-      secret: this.cfg.get<string>('JWT_SECRET') || 'dev_fallback_secret',
+  @ApiResponse({
+    status: 201,
+    description: 'Refresh token invalidated successfully',
+  })
+  async logout(@Body() body: RefreshTokenDto): Promise<{ ok: boolean }> {
+    const decoded = await this.jwtService.verifyAsync(body.refresh_token, {
+      secret: this.getJwtSecret(),
     });
-    const user = await this.users.findByCorreo(decoded.email);
-    if (user) await this.users.clearRefreshTokenHash(user.codUsuario);
+
+    const user = await this.usuarioService.findByCorreo(decoded.email);
+    if (user) {
+      await this.usuarioService.clearRefreshTokenHash(user.codUsuario);
+    }
+
     return { ok: true };
   }
 }

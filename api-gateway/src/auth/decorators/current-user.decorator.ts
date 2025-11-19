@@ -4,28 +4,51 @@ import { BadRequestException, createParamDecorator, ExecutionContext } from '@ne
 type CurrentUserMode = 'id' | 'raw' | undefined;
 
 export interface AuthUserShape {
-  sub?: number;      // lo que tú pones en el JWT
-  id?: number;       // por si algún día otro servicio lo normaliza así
+  sub?: number;      // Subject claim as set in the JWT.
+  id?: number;       // Normalized id if another service chooses to expose it this way.
   email?: string;
-  rol?: string;
+  rol?: string;      // User role as received from the JWT payload.
 }
 
+const UNAUTHENTICATED_USER_MESSAGE = 'Usuario no autenticado';
+
+function getRequestUser(context: ExecutionContext): AuthUserShape {
+  const request = context.switchToHttp().getRequest();
+  return (request.user ?? {}) as AuthUserShape;
+}
+
+/**
+ * Normalizes the user id by preferring the `sub` claim and falling back to `id`.
+ * The return value mirrors the previous behavior: it may be NaN or any falsy value.
+ */
+function normalizeUserId(user: AuthUserShape): number {
+  return Number(user.sub ?? user.id);
+}
+
+/**
+ * Parameter decorator that injects the authenticated user into controller handlers.
+ *
+ * Usage:
+ * - @CurrentUser('id')   -> returns the normalized numeric user id.
+ * - @CurrentUser('raw')  -> returns the full user payload with a normalized `id` field.
+ * - @CurrentUser()       -> behaves like 'raw' mode.
+ */
 export const CurrentUser = createParamDecorator<CurrentUserMode>(
-  (data: CurrentUserMode, ctx: ExecutionContext) => {
-    const req = ctx.switchToHttp().getRequest();
-    const u = (req.user || {}) as AuthUserShape;
+  (mode: CurrentUserMode, context: ExecutionContext) => {
+    const user = getRequestUser(context);
+    const normalizedUserId = normalizeUserId(user);
 
-    // Normalizamos el id: preferimos sub, si no, id
-    const id = Number(u.sub ?? u.id);
-
-    if (data === 'id') {
-      if (!id || Number.isNaN(id)) {
-        throw new BadRequestException('Usuario no autenticado');
+    if (mode === 'id') {
+      if (!normalizedUserId || Number.isNaN(normalizedUserId)) {
+        throw new BadRequestException(UNAUTHENTICATED_USER_MESSAGE);
       }
-      return id;
+      return normalizedUserId;
     }
 
-    // Modo por defecto: objeto "raw" enriquecido con id normalizado
-    return { ...u, id };
+    // Default mode: returns the raw user object enriched with the normalized id.
+    return {
+      ...user,
+      id: normalizedUserId,
+    };
   },
 );

@@ -5,7 +5,10 @@ import { AppService } from './app.service';
 export class AppController {
   constructor(private readonly appService: AppService) {}
 
-  @Get()
+  /**
+   * Root endpoint that returns the greeting message.
+   */
+  @Get('/')
   getHello(): string {
     return this.appService.getHello();
   }
