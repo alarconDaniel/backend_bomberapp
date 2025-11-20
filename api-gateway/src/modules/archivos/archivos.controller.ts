@@ -21,7 +21,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
-import { mapAxiosError } from '../common/http-proxy.util';
+import { mapAxiosError } from '../../common/http-proxy.util';
 
 const RETOS_URL_CONFIG_KEY = 'RETOS_URL';
 const DEFAULT_RETOS_BASE_URL = 'http://localhost:3550';
