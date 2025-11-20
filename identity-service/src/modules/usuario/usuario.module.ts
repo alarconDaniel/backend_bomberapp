@@ -1,11 +1,18 @@
 import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+
 import { UsuarioController } from './usuario.controller';
 import { UsuarioService } from './usuario.service';
 import { Usuario } from 'src/models/usuario/usuario';
-import { TypeOrmModule } from '@nestjs/typeorm';
 
+/**
+ * Module that encapsulates user-related HTTP endpoints and persistence layer.
+ * Uses TypeOrmModule.forFeature to register the Usuario repository.
+ */
 @Module({
-  imports: [TypeOrmModule.forFeature([Usuario])],  // NO es necesario el ConexionModule pues está global y especificado en app.module.ts, pero si se importa el repo de esa entidad
+  // ConexionModule is global and already configured at the root level,
+  // so it is not required here. Only the entity repository is imported.
+  imports: [TypeOrmModule.forFeature([Usuario])],
   controllers: [UsuarioController],
   providers: [UsuarioService],
   exports: [UsuarioService],

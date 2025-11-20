@@ -128,7 +128,7 @@ export class AuthController {
     description: 'Authenticated user information returned successfully',
   })
   @ApiResponse({ status: 401, description: 'Invalid or missing token' })
-  me(@CurrentUser() user: AuthUserShape): AuthUserShape {
+  me(@CurrentUser() user: any): any {
     // `user` is the JWT payload (sub, email, rol, etc.) plus a normalized `id`.
     return user;
   }

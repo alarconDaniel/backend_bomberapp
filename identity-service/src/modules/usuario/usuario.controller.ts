@@ -1,20 +1,16 @@
 // src/modules/usuario/usuario.controller.ts
 import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
-  Param,
   Body,
-  ParseIntPipe,
+  Controller,
+  Delete,
+  Get,
   HttpException,
   HttpStatus,
+  Param,
+  ParseIntPipe,
+  Post,
+  Put,
 } from '@nestjs/common';
-import { UsuarioService } from './usuario.service';
-import { ModificarUsuarioDto } from './dto/modificar-usuario.dto';
-import { CrearUsuarioDto } from './dto/crear-usuario.dto';
-import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -24,69 +20,83 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
+import { UsuarioService } from './usuario.service';
+import { ModificarUsuarioDto } from './dto/modificar-usuario.dto';
+import { CrearUsuarioDto } from './dto/crear-usuario.dto';
+import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+
+const SWAGGER_BEARER_AUTH_NAME = 'jwt-auth';
+const SELF_DELETE_FORBIDDEN_MESSAGE = 'No puedes eliminar tu propio usuario';
+
+/**
+ * Controller responsible for user management operations:
+ * listing, retrieving, creating, updating and deleting users.
+ */
 @ApiTags('Usuarios')
-@ApiBearerAuth('jwt-auth')
+@ApiBearerAuth(SWAGGER_BEARER_AUTH_NAME)
 @Controller('usuario')
 export class UsuarioController {
   constructor(private readonly usuarioService: UsuarioService) {}
 
   @Get('listar')
-  @ApiOperation({ summary: 'Listar todos los usuarios' })
-  @ApiResponse({ status: 200, description: 'Listado de usuarios' })
+  @ApiOperation({ summary: 'List all users' })
+  @ApiResponse({ status: 200, description: 'List of users returned successfully' })
   listarUsuarios() {
     return this.usuarioService.listarUsuarios();
   }
 
   @Get('me')
-  @ApiOperation({ summary: 'Obtener mis datos de usuario' })
-  @ApiResponse({ status: 200, description: 'Usuario encontrado' })
+  @ApiOperation({ summary: 'Get data for the currently authenticated user' })
+  @ApiResponse({ status: 200, description: 'Current user found' })
   me(@CurrentUser('id') userId: number) {
     return this.usuarioService.buscarUsuario(userId);
   }
 
   @Get(':codUsuario')
-  @ApiOperation({ summary: 'Buscar usuario por ID' })
+  @ApiOperation({ summary: 'Find a user by its identifier' })
   @ApiParam({ name: 'codUsuario', type: Number })
-  @ApiResponse({ status: 200, description: 'Usuario encontrado' })
-  @ApiResponse({ status: 404, description: 'Usuario no encontrado' })
+  @ApiResponse({ status: 200, description: 'User found' })
+  @ApiResponse({ status: 404, description: 'User not found' })
   buscarUsuario(@Param('codUsuario', ParseIntPipe) codUsuario: number) {
     return this.usuarioService.buscarUsuario(codUsuario);
   }
 
   @Post('crear')
-  @ApiOperation({ summary: 'Crear un nuevo usuario' })
+  @ApiOperation({ summary: 'Create a new user' })
   @ApiBody({ type: CrearUsuarioDto })
-  @ApiResponse({ status: 201, description: 'Usuario creado' })
-  @ApiResponse({ status: 409, description: 'Correo duplicado' })
+  @ApiResponse({ status: 201, description: 'User created successfully' })
+  @ApiResponse({ status: 409, description: 'Email already exists' })
   crearUsuario(@Body() dto: CrearUsuarioDto) {
     return this.usuarioService.crearUsuario(dto);
   }
 
   @Put('modificar')
-  @ApiOperation({ summary: 'Modificar un usuario existente' })
+  @ApiOperation({ summary: 'Update an existing user' })
   @ApiBody({ type: ModificarUsuarioDto })
-  @ApiResponse({ status: 200, description: 'Usuario modificado' })
-  @ApiResponse({ status: 404, description: 'Usuario no encontrado' })
+  @ApiResponse({ status: 200, description: 'User updated successfully' })
+  @ApiResponse({ status: 404, description: 'User not found' })
   modificarUsuario(@Body() dto: ModificarUsuarioDto) {
     return this.usuarioService.modificarUsuario(dto);
   }
 
   @Delete('borrar/:codUsuario')
-  @ApiOperation({ summary: 'Borrar un usuario por ID' })
+  @ApiOperation({ summary: 'Delete a user by its identifier' })
   @ApiParam({ name: 'codUsuario', type: Number })
-  @ApiResponse({ status: 200, description: 'Usuario borrado' })
-  @ApiResponse({ status: 403, description: 'No puedes borrarte a ti mismo' })
-  @ApiResponse({ status: 404, description: 'Usuario no encontrado' })
+  @ApiResponse({ status: 200, description: 'User deleted successfully' })
+  @ApiResponse({ status: 403, description: 'You cannot delete your own user' })
+  @ApiResponse({ status: 404, description: 'User not found' })
   borrarUsuario(
     @Param('codUsuario', ParseIntPipe) codUsuario: number,
     @CurrentUser('id') currentUserId: number,
   ) {
     if (Number.isFinite(currentUserId) && currentUserId === codUsuario) {
+      // Prevent the currently authenticated user from deleting itself.
       throw new HttpException(
-        'No puedes eliminar tu propio usuario',
+        SELF_DELETE_FORBIDDEN_MESSAGE,
         HttpStatus.FORBIDDEN,
       );
     }
+
     return this.usuarioService.borrarUsuario(codUsuario);
   }
 }

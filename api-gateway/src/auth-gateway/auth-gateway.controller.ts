@@ -13,12 +13,16 @@ import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from 'src/auth/decorators/public.decorator';
 import { mapAxiosError } from 'src/common/http-proxy.util';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { ApiProperty } from '@nestjs/swagger';
 
 /**
  * DTO used to authenticate a user against the identity-service.
  */
 class LoginDto {
+  @ApiProperty({ example: 'user@example.com' })
   email: string;
+
+  @ApiProperty({ example: 'StrongP4ssw0rd', minLength: 8 })
   password: string;
 }
 

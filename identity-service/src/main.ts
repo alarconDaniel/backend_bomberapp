@@ -1,16 +1,23 @@
-import { NestFactory } from "@nestjs/core";
-import { AppModule } from "./app.module";
-import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import { NestFactory } from '@nestjs/core';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
-async function bootstrap() {
+import { AppModule } from './app.module';
+
+/**
+ * Bootstraps the NestJS application and configures the Swagger/OpenAPI
+ * documentation for the Identity Service.
+ */
+async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
 
-const port = Number(process.env.PORT);
+  // Port is provided via environment variable.
+  // If undefined, Nest will fall back to its default port.
+  const port = Number(process.env.PORT);
 
-  // --- Config Swagger/OpenAPI ---
+  // --- Swagger/OpenAPI configuration ---
   const config = new DocumentBuilder()
     .setTitle('Identity Service - BomberApp')
-    .setDescription('Microservicio de autenticación y gestión de usuarios')
+    .setDescription('Authentication and user management microservice')
     .setVersion('1.0.0')
     .addBearerAuth(
       {
@@ -18,16 +25,16 @@ const port = Number(process.env.PORT);
         scheme: 'bearer',
         bearerFormat: 'JWT',
       },
-      'jwt-auth', // nombre del esquema
+      'jwt-auth', // Name of the security scheme used in controllers
     )
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup("docs", app, document); // http://localhost:8090/docs
- 
+  SwaggerModule.setup('docs', app, document); // e.g. http://localhost:8090/docs
 
   await app.listen(port);
-  console.log(`Identity escuchando en http://localhost:${port}`);
-  console.log(`Swagger en http://localhost:${port}/docs`);
+  console.log(`Identity listening on http://localhost:${port}`);
+  console.log(`Swagger docs available at http://localhost:${port}/docs`);
 }
+
 bootstrap();

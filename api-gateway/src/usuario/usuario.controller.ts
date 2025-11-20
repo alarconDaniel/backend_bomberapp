@@ -35,31 +35,13 @@ const SWAGGER_BEARER_AUTH_NAME = 'jwt-auth';
  * DTO used to describe the payload required to create a user.
  * This class is used for documentation purposes at the gateway level.
  */
-class CrearUsuarioDto {
-  nombreUsuario!: string;
-  apellidoUsuario!: string;
-  cedulaUsuario!: string;
-  nicknameUsuario?: string | null;
-  correoUsuario!: string;
-  contrasenaUsuario!: string;
-  codRol!: number;
-}
+import { CrearUsuarioDto } from './dto/crear-usuario.dto';
 
 /**
  * DTO used to describe the payload required to modify an existing user.
  * All properties are optional except the identifier `codUsuario`.
  */
-class ModificarUsuarioDto {
-  codUsuario!: number;
-  nombreUsuario?: string;
-  apellidoUsuario?: string;
-  cedulaUsuario?: string;
-  nicknameUsuario?: string | null;
-  correoUsuario?: string;
-  contrasenaUsuario?: string;
-  codRol?: number;
-  tokenVersion?: number;
-}
+import { ModificarUsuarioDto } from './dto/modificar-usuario.dto';
 
 /**
  * Gateway controller that exposes "usuario" endpoints and

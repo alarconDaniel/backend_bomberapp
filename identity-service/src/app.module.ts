@@ -1,17 +1,23 @@
-import { Module } from "@nestjs/common";
-import { AppController } from "./app.controller";
-import { AppService } from "./app.service";
-import { ConexionModule } from "./config/conexion.module";
-import { UsuarioModule } from "./modules/usuario/usuario.module";
-import { AuthModule } from "./auth/auth.module";
-import { ConfigModule } from "@nestjs/config";
-import { APP_GUARD } from "@nestjs/core";
-import { JwtAuthGuard } from "./auth/guards/jwt-auth.guard";
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { ConexionModule } from './config/conexion.module';
+import { UsuarioModule } from './modules/usuario/usuario.module';
+import { AuthModule } from './auth/auth.module';
+import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+
+/**
+ * Root application module.
+ * Wires global configuration, database connection, core feature modules
+ * and the global authentication guard.
+ */
 @Module({
   imports: [
     ConfigModule.forRoot({
-      isGlobal: true, // para no tener que importarlo en todos los módulos
+      isGlobal: true, // Makes configuration available across the app without re-importing the module.
     }),
     ConexionModule,
     UsuarioModule,
@@ -19,10 +25,11 @@ import { JwtAuthGuard } from "./auth/guards/jwt-auth.guard";
   ],
   controllers: [AppController],
   providers: [
-        {
+    {
       provide: APP_GUARD,
-      useClass: JwtAuthGuard, // 👈 guard global
+      useClass: JwtAuthGuard, // Registers JwtAuthGuard as a global guard for all routes.
     },
-    AppService],
+    AppService,
+  ],
 })
 export class AppModule {}

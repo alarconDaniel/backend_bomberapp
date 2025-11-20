@@ -13,6 +13,11 @@ import { JwtStrategy } from './auth/jwt.strategy';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RetoModule } from './reto/reto.module';
 import { MisRetosGatewayModule } from './mis-retos/mis-retos.module';
+import { ArchivosGatewayModule } from './archivos/archivos.module';
+import { AvatarRopaGatewayModule } from './modules/avatar-ropa/avatar-ropa.module';
+import { CatalogosModule } from './modules/catalogos/catalogos.module';
+import { MisStatsModule } from './modules/mis-stats/mis-stats.module';
+import { ItemInventarioModule } from './modules/public/item_inventario/item_inventario.module';
 
 const DEFAULT_JWT_SECRET = 'dev_fallback_secret';
 
@@ -28,6 +33,11 @@ const DEFAULT_JWT_SECRET = 'dev_fallback_secret';
     }),
     RetoModule,
     MisRetosGatewayModule,
+    ArchivosGatewayModule,
+    AvatarRopaGatewayModule,
+    CatalogosModule,
+    MisStatsModule,
+    ItemInventarioModule,
   ],
   controllers: [
     AuthGatewayController,
