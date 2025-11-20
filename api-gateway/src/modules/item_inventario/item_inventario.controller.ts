@@ -20,7 +20,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
-import { mapAxiosError } from '../../../common/http-proxy.util';
+import { mapAxiosError } from '../../common/http-proxy.util';
 import { AbrirCofreDto } from './dto/abrir-cofre.dto';
 
 
