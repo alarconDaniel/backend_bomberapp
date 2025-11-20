@@ -23,6 +23,7 @@ import {
 import { mapAxiosError } from '../../../common/http-proxy.util';
 import { AbrirCofreDto } from './dto/abrir-cofre.dto';
 
+
 const RETOS_URL_CONFIG_KEY = 'RETOS_URL';
 const DEFAULT_RETOS_BASE_URL = 'http://localhost:3550';
 const SWAGGER_BEARER_AUTH_NAME = 'jwt-auth';
