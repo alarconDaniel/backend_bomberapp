@@ -1,11 +1,15 @@
 import { Module } from '@nestjs/common';
 import { UsuarioController } from './usuario.controller';
 import { UsuarioService } from './usuario.service';
-// Si NO usas @Global en ConexionModule, importa aquí:
 import { ConexionModule } from 'src/config/conexion/conexion.module';
 
+/**
+ * Módulo de usuario:
+ * - Expone los endpoints de gestión de usuarios.
+ * - Reexporta UsuarioService para que otros módulos puedan inyectarlo.
+ */
 @Module({
-  imports: [ConexionModule], 
+  imports: [ConexionModule],
   controllers: [UsuarioController],
   providers: [UsuarioService],
   exports: [UsuarioService],

@@ -11,17 +11,25 @@ import { Slot, ALL_SLOTS } from 'src/common/slots.enum';
 
 @Injectable()
 export class AvatarRopaService {
+  /** Repositorios usados para leer/escribir estado de avatar e inventario. */
   private repoAE: Repository<AvatarEquipado>;
   private repoInv: Repository<ItemInventario>;
   private repoTienda: Repository<ItemTienda>;
 
+  /**
+   * Se inyecta el DataSource principal y se inicializan los repos directamente.
+   * Esto permite usar el mismo DataSource también dentro de transacciones manuales.
+   */
   constructor(private readonly ds: DataSource) {
     this.repoAE = ds.getRepository(AvatarEquipado);
     this.repoInv = ds.getRepository(ItemInventario);
     this.repoTienda = ds.getRepository(ItemTienda);
   }
 
-  /** Devuelve { slots: Record<Slot, number|null>, equipped: number[] } */
+  /** Devuelve el estado actual del avatar:
+   *  - slots: cod_item_inventario por cada Slot (o null)
+   *  - equipped: lista plana de ids equipados
+   */
   async getEquipada(codUsuario: number) {
     const rows = await this.repoAE.find({ where: { codUsuario } });
 
@@ -38,7 +46,7 @@ export class AvatarRopaService {
   async guardar(codUsuario: number, dto: SaveAvatarDto) {
     if (!codUsuario) throw new ForbiddenException('No autenticado');
 
-    // Normaliza payload: solo slots válidos, resto = null (idempotente)
+    // Normaliza payload: sólo slots válidos, resto = null (idempotente)
     const incoming: Record<Slot, number | null> = {
       [Slot.CABEZA]: null, [Slot.TORSO]: null, [Slot.PIERNAS]: null, [Slot.PIES]: null, [Slot.EXTRA]: null,
     };
@@ -47,11 +55,12 @@ export class AvatarRopaService {
       incoming[s] = (v === null || v === undefined) ? null : Number(v);
     }
 
+    // Uso explícito de queryRunner para tener control total de la transacción.
     const qr = this.ds.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
     try {
-      // 1) Carga todos los items referenciados para validar (una sola query)
+      // 1) Carga todos los items referenciados para validar (una sola query, lock de lectura)
       const referenciados = Object.values(incoming).filter((v): v is number => Number.isInteger(v));
       const invs = referenciados.length
         ? await qr.manager.getRepository(ItemInventario).find({
@@ -63,7 +72,7 @@ export class AvatarRopaService {
 
       const invById = new Map(invs.map(i => [i.codItemInventario, i]));
 
-      // 2) Validaciones por slot
+      // 2) Validaciones por slot (propietario, tipo, stock, slot compatible)
       for (const slot of ALL_SLOTS) {
         const cod = incoming[slot];
         if (cod == null) continue;
@@ -84,38 +93,39 @@ export class AvatarRopaService {
         }
       }
 
-// 3) Upsert / Delete por slot
-const repoAE = qr.manager.getRepository(AvatarEquipado);
+      // 3) Upsert / Delete por slot en tabla AvatarEquipado (respetando constraint UNIQUE)
+      const repoAE = qr.manager.getRepository(AvatarEquipado);
 
-for (const slot of ALL_SLOTS) {
-  const cod = incoming[slot]; // number | null
+      for (const slot of ALL_SLOTS) {
+        const cod = incoming[slot]; // number | null
 
-  if (cod == null) {
-    // limpiar slot => DELETE (porque cod_item_inventario puede ser NOT NULL en tu DDL)
-    await repoAE.delete({ codUsuario, slot });
-    continue;
-  }
+        if (cod == null) {
+          // limpiar slot => DELETE (cod_item_inventario suele ser NOT NULL en el esquema)
+          await repoAE.delete({ codUsuario, slot });
+          continue;
+        }
 
-  // Insertar o actualizar. OJO: nombres de COLUMNA en snake_case
-  await repoAE
-    .createQueryBuilder()
-    .insert()
-    .into(AvatarEquipado)
-    .values({ codUsuario, slot, codItemInventario: cod })
-    .orUpdate(
-      ['cod_item_inventario', 'updated_at'], // columnas a sobreescribir
-      ['cod_usuario', 'slot'],               // columnas que definen el conflicto (UNIQUE uq_usuario_slot)
-    )
-    .execute();
-}
+        // Insertar o actualizar. OJO: nombres de COLUMNA en snake_case
+        await repoAE
+          .createQueryBuilder()
+          .insert()
+          .into(AvatarEquipado)
+          .values({ codUsuario, slot, codItemInventario: cod })
+          .orUpdate(
+            ['cod_item_inventario', 'updated_at'], // columnas a sobreescribir
+            ['cod_usuario', 'slot'],               // columnas que definen el conflicto (UNIQUE uq_usuario_slot)
+          )
+          .execute();
+      }
 
-await qr.commitTransaction();
+      // Commit sólo si todo el upsert/delete se ejecutó correctamente
+      await qr.commitTransaction();
 
-
-      // 4) Estado final
+      // 4) Estado final unificado que recibe el cliente tras guardar
       const { slots, equipped } = await this.getEquipada(codUsuario);
       return { ok: true, slots, equipped };
     } catch (e: any) {
+      // En caso de error, revertimos todos los cambios del bloque anterior
       try { await qr.rollbackTransaction(); } catch {}
       // Dejar que BD avise si UNIQUE salta (ítem en dos slots)
       if (e?.code === 'ER_DUP_ENTRY' || e?.errno === 1062) {
@@ -123,6 +133,7 @@ await qr.commitTransaction();
       }
       throw e;
     } finally {
+      // Cerramos el queryRunner aunque algo haya fallado
       try { await qr.release(); } catch {}
     }
   }

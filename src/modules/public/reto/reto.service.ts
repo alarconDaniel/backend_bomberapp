@@ -31,13 +31,20 @@ type ProgresoDiaItem = {
   mi?: { asignado: boolean; completado: boolean; enProgreso: boolean };
 };
 
+/**
+ * Servicio de retos:
+ * - Expone operaciones CRUD y DTOs simplificados de retos.
+ * - Orquesta lógica de calendario, progreso diario, participación semanal
+ *   y asignación automática por cargo (incluyendo crons).
+ */
 @Injectable()
 export class RetoService {
   private retoRepo: Repository<Reto>;
   private urRepo: Repository<UsuarioReto>;
-  private hd: any; // festivos CO
+  // Manejador de festivos para Colombia (CO) usado por la lógica de días laborales.
+  private hd: any;
 
-  // compatibilidad
+  // compatibilidad (algunos módulos lo usan como `repo`)
   public readonly repo: Repository<Reto>;
 
   constructor(public readonly ds: DataSource) {
@@ -47,17 +54,25 @@ export class RetoService {
     this.hd = new Holidays("CO");
   }
 
-  // --------- Básicos ----------
+  // --------- Básicos (CRUD minimal) ----------
+
+  /** Devuelve todos los retos sin filtros adicionales (uso interno/legacy). */
   public async listarRetos() {
     return this.retoRepo.find();
   }
 
+  /** Devuelve un reto por id sin cargar estructuras asociadas. */
   public async verReto(cod: number) {
     if (!cod) throw new BadRequestException("Código inválido");
     return this.retoRepo.findOne({ where: { codReto: cod } });
   }
 
   // --------- Calendario por día (asignaciones del usuario) ----------
+
+  /**
+   * Lista las asignaciones de retos para un usuario en una fecha concreta.
+   * Considera tanto fecha_objetivo como ventanas de tiempo (ventana_inicio/fin).
+   */
   public async listarPorDia(codUsuario: number, isoYmd: string) {
     const fecha = dayjs(isoYmd, "YYYY-MM-DD", true);
     if (!fecha.isValid())
@@ -105,8 +120,8 @@ export class RetoService {
   }
 
   /**
-   * Agregado por día (HomeScreen) — devuelve TODOS los retos activos cuyo rango cubre la fecha,
-   * aunque no haya filas en usuarios_retos. Une con agregados de asignaciones si existen.
+   * Agregado de progreso por día (para HomeScreen).
+   * Une el catálogo de retos activos con agregados de usuarios_retos para esa fecha.
    */
   public async progresoDia(
     isoYmd: string,
@@ -183,14 +198,19 @@ export class RetoService {
     });
   }
 
-  // --------- Cron ----------
+  // --------- Cron / días laborales ----------
+
+  /** Indica si una fecha es laboral (no domingo y no festivo CO). */
   private isBusinessDay(d: Date): boolean {
     const wd = d.getDay(); // 0 dom, 6 sab
     if (wd === 0) return false;
     return !this.hd.isHoliday(d);
   }
 
-  /** Asigna retos automáticos por cargo si el día es laboral. */
+  /**
+   * Asigna retos automáticos por cargo para un día dado,
+   * sólo si la fecha es laboral.
+   */
   public async asignarAutomaticosSiLaboral(hoyYmd: string) {
     const hoyDate = new Date(`${hoyYmd}T00:00:00-05:00`);
     if (!this.isBusinessDay(hoyDate)) {
@@ -224,7 +244,9 @@ export class RetoService {
     return { ok: true, intentadas: nuevas, nuevas, fecha: hoyYmd };
   }
 
-  /** Marca vencidos según fecha. */
+  /**
+   * Marca como vencidas las asignaciones cuya fecha objetivo/ventana ya expiró.
+   */
   public async marcarVencidos(hoyYmd: string) {
     await this.ds.query(
       `
@@ -241,6 +263,7 @@ export class RetoService {
     return { ok: true };
   }
 
+  /** Proyección a DTO de reto básico (para listados y detalle ligero). */
   private toDTO = (r: Partial<Reto>): RetoDTO => ({
     codReto: r.codReto!,
     nombreReto: r.nombreReto!,
@@ -250,7 +273,11 @@ export class RetoService {
     fechaFinReto: (r as any).fechaFinReto ?? null,
   });
 
-  /** Devuelve el reto con estructura completa (quiz/form/archivo). */
+  /**
+   * Devuelve un reto con su estructura completa:
+   * - quiz: preguntas + tablas hijas (abcd / rellenar / emparejar / reporte).
+   * - form/archivo: devuelve `metadataReto.schema` como representación del formulario.
+   */
   public async verRetoFull(codReto: number) {
     const r = await this.retoRepo.findOne({ where: { codReto } });
     if (!r) throw new NotFoundException("Reto no encontrado");
@@ -293,16 +320,18 @@ export class RetoService {
             [q.codPregunta]
           );
         }
-        // tipo 'reporte': no hay tabla hija que consultar en tu esquema → nada adicional
+        // tipo 'reporte': no hay tabla hija en el esquema → nada adicional
       }
       return { ...r, quiz: { preguntas } };
     } else {
-      // 'form' o 'archivo' → metadata opcional
+      // 'form' o 'archivo' → normalmente metadataReto.schema describe el formulario
       return { ...r, form: r.metadataReto?.schema ?? null };
     }
   }
 
-  // ---------- LISTAR ----------
+  // ---------- LISTAR / DETALLE (DTOs compactos) ----------
+
+  /** Lista de retos en forma compacta, ordenados por código. */
   public async listar(): Promise<RetoDTO[]> {
     const rows = await this.retoRepo.find({
       loadEagerRelations: false,
@@ -320,7 +349,7 @@ export class RetoService {
     return rows.map(this.toDTO);
   }
 
-  // ---------- DETALLE ----------
+  /** Detalle simple de un reto (misma forma que listar[], pero 1 sólo registro). */
   public async detalle(codReto: number): Promise<RetoDTO> {
     const reto = await this.retoRepo.findOne({
       where: { codReto },
@@ -339,13 +368,19 @@ export class RetoService {
     return this.toDTO(reto);
   }
 
-  // ---------- CREAR (genérico) ----------
+  // ---------- CREAR reto genérico (quiz/form/archivo) ----------
+
+  /**
+   * Crea un reto:
+   * - Si payload indica tipo "quiz" + preguntas[], delega en crearQuiz.
+   * - En caso contrario crea sólo la metadata base y asocia cargos si se envían.
+   */
   public async crear(payload: Partial<Reto>): Promise<RetoDTO | any> {
     const qr = this.ds.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
     try {
-      // Si es QUIZ con preguntas → delega a crearQuiz (que ya está transaccional)
+      // Si es QUIZ con preguntas → delega a crearQuiz (que ya es transaccional)
       const tipoMaybe =
         (payload as any)?.tipoReto ??
         (payload as any)?.tipo ??
@@ -355,7 +390,7 @@ export class RetoService {
         : undefined;
       const preguntas = (payload as any)?.preguntas;
       if (tipo === "quiz" && Array.isArray(preguntas) && preguntas.length > 0) {
-        await qr.release(); // usamos el flujo existente
+        await qr.release(); // se usa el flujo específico de quiz
         return this.crearQuiz(payload as any);
       }
 
@@ -389,7 +424,7 @@ export class RetoService {
         if (clean.metadataReto === undefined) clean.metadataReto = null;
       }
 
-      // Tiempo estimado
+      // Tiempo estimado (segundos, >= 0)
       if (clean.tiempoEstimadoSegReto != null) {
         clean.tiempoEstimadoSegReto = Math.max(
           0,
@@ -403,7 +438,7 @@ export class RetoService {
         }
       }
 
-      // Flags
+      // Flags de configuración
       clean.esAutomaticoReto = Number(
         (payload as any)?.esAutomaticoReto ??
           (payload as any)?.es_automatico_reto ??
@@ -413,7 +448,7 @@ export class RetoService {
         : 0;
       clean.activo = Number((payload as any)?.activo ?? clean.activo) ? 1 : 0;
 
-      // Tipo
+      // Tipo de reto (quiz/form/archivo)
       let tipoReto: string | undefined =
         (payload as any)?.tipoReto ?? (payload as any)?.tipo ?? clean.tipoReto;
       tipoReto = tipoReto ? String(tipoReto).toLowerCase().trim() : undefined;
@@ -439,7 +474,7 @@ export class RetoService {
       }
       clean.tipoReto = tipoReto;
 
-      // Fechas
+      // Fechas de vigencia
       if (clean.fechaInicioReto !== undefined)
         clean.fechaInicioReto = toMySqlDateOrNull(clean.fechaInicioReto);
       if (clean.fechaFinReto !== undefined)
@@ -486,7 +521,7 @@ export class RetoService {
         );
 
       // ================= CARGOS (opcional) =================
-      // Espera cualquiera de: cargoIds | cargos | cargosIds en payload
+      // Acepta cargoIds | cargos | cargosIds como lista de ids de cargo.
       const cargoIds: number[] =
         (payload as any)?.cargoIds ??
         (payload as any)?.cargos ??
@@ -540,13 +575,21 @@ export class RetoService {
   }
 
   // ---------- BORRAR ----------
+
+  /** Elimina un reto por id (hard delete). */
   public async borrar(codReto: number): Promise<{ ok: true }> {
     const r = await this.retoRepo.delete({ codReto });
     if (!r.affected) throw new NotFoundException("Reto no encontrado");
     return { ok: true };
   }
 
-  // ---------- MODIFICAR (tu lógica original) ----------
+  // ---------- MODIFICAR (actualiza metadata y asignación de cargos) ----------
+
+  /**
+   * Modifica campos de un reto:
+   * - Valida fechas, nombre, tipoReto y tiempo estimado.
+   * - Actualiza asociación de cargos si se envían ids de cargo.
+   */
   public async modificar(
     codReto: number,
     payload: Partial<Reto>
@@ -569,6 +612,7 @@ export class RetoService {
       updates.esAutomaticoReto = Number(rawAuto) ? 1 : 0;
     if (rawActivo !== undefined) updates.activo = Number(rawActivo) ? 1 : 0;
 
+    // metadata/config
     const rawConfig =
       (payload as any)?.config ??
       (payload as any)?.metadataReto ??
@@ -582,6 +626,7 @@ export class RetoService {
       }
     }
 
+    // tipoReto (si viene)
     let tipoReto: string | undefined =
       (payload as any)?.tipoReto ??
       (payload as any)?.tipo ??
@@ -614,6 +659,7 @@ export class RetoService {
       throw new BadRequestException("nombreReto no puede ser vacío");
     }
 
+    // Validación de rango de fechas de vigencia
     const ini = updates.fechaInicioReto ?? current.fechaInicioReto;
     const fin = updates.fechaFinReto ?? current.fechaFinReto;
     if (
@@ -675,7 +721,12 @@ export class RetoService {
     return this.toDTO(fresh!);
   }
 
-  // ========== CREAR QUIZ COMPLETO ==========
+  // ========== CREAR QUIZ COMPLETO (cabecera + preguntas + tablas hijas) ==========
+
+  /**
+   * Crea un reto de tipo "quiz" junto con todas sus preguntas
+   * y estructuras dependientes (abcd / rellenar / emparejar / reporte).
+   */
   public async crearQuiz(payload: any) {
     // --- Cabecera del reto (igual que ya tenías) ---
     const nombreReto = String(
@@ -917,7 +968,8 @@ export class RetoService {
           }
         }
 
-        // tipo 'reporte': no hay tabla hija → nada más que insertar en 'preguntas'
+        // tipo 'reporte': no hay tabla hija → sólo registro en preguntas
+        inserted++;
       }
 
       await qr.commitTransaction();
@@ -977,6 +1029,8 @@ export class RetoService {
 
   /**
    * ===== OPERARIOS del día =====
+   * Devuelve, para cada operario (rol 2), cuántos retos completó
+   * y si subió reportes/archivos en una fecha concreta.
    */
   public async operariosStatsDia(isoYmd: string) {
     const fecha = dayjs(isoYmd, "YYYY-MM-DD", true);
@@ -1035,27 +1089,30 @@ export class RetoService {
     }));
   }
 
-  // En RetoService
-// En RetoService
-public async participacionSemanal(
-  isoYmd: string
-): Promise<{ semanas: number; items: Array<{ semana: number; completados: number }> }> {
-  const fecha = dayjs(isoYmd, 'YYYY-MM-DD', true);
-  if (!fecha.isValid()) throw new BadRequestException('Fecha inválida (YYYY-MM-DD)');
+  /**
+   * Participación semanal en un mes:
+   * cuenta completados diarios (usuarios+retos) y los agrega en "semanas visuales"
+   * para gráficos de la home.
+   */
+  public async participacionSemanal(
+    isoYmd: string
+  ): Promise<{ semanas: number; items: Array<{ semana: number; completados: number }> }> {
+    const fecha = dayjs(isoYmd, 'YYYY-MM-DD', true);
+    if (!fecha.isValid()) throw new BadRequestException('Fecha inválida (YYYY-MM-DD)');
 
-  const startStr = fecha.startOf('month').format('YYYY-MM-01');
-  const endStr   = fecha.endOf('month').format('YYYY-MM-DD');
+    const startStr = fecha.startOf('month').format('YYYY-MM-01');
+    const endStr   = fecha.endOf('month').format('YYYY-MM-DD');
 
-  // ¿Cuántas semanas "visibles" tiene el mes, con lunes=0?
-  const [weekRow] = await this.ds.query(
-    `SELECT CEIL((WEEKDAY(?) + DAY(LAST_DAY(?)))/7) AS semanas`,
-    [startStr, startStr]
-  );
-  const semanas = Number(weekRow?.semanas ?? 4) || 4;
+    // ¿Cuántas semanas "visibles" tiene el mes, con lunes=0?
+    const [weekRow] = await this.ds.query(
+      `SELECT CEIL((WEEKDAY(?) + DAY(LAST_DAY(?)))/7) AS semanas`,
+      [startStr, startStr]
+    );
+    const semanas = Number(weekRow?.semanas ?? 4) || 4;
 
-  // Bucket por semana 100% en SQL (evita TZ y tipos raros)
-  const rows: Array<{ semana: number; completados: number }> = await this.ds.query(
-    `
+    // Bucket por semana 100% en SQL (evita TZ y tipos raros)
+    const rows: Array<{ semana: number; completados: number }> = await this.ds.query(
+      `
     WITH daily AS (
       SELECT DATE(COALESCE(ur.fecha_complecion, ur.terminado_en)) AS f,
              ur.cod_usuario, ur.cod_reto
@@ -1093,23 +1150,22 @@ public async participacionSemanal(
     GROUP BY semana
     ORDER BY semana
     `,
-    [startStr, endStr, startStr, endStr, startStr, endStr, startStr]
-  );
+      [startStr, endStr, startStr, endStr, startStr, endStr, startStr]
+    );
 
-  // Normaliza a {1..semanas}, rellenando semanas faltantes con 0
-  const byWeek = new Map<number, number>();
-  for (const r of rows) byWeek.set(Number(r.semana), Number(r.completados));
+    // Normaliza a {1..semanas}, rellenando semanas faltantes con 0
+    const byWeek = new Map<number, number>();
+    for (const r of rows) byWeek.set(Number(r.semana), Number(r.completados));
 
-  const items = Array.from({ length: semanas }, (_, i) => {
-    const w = i + 1;
-    return { semana: w, completados: byWeek.get(w) ?? 0 };
-  });
+    const items = Array.from({ length: semanas }, (_, i) => {
+      const w = i + 1;
+      return { semana: w, completados: byWeek.get(w) ?? 0 };
+    });
 
-  return { semanas, items };
-}
+    return { semanas, items };
+  }
 
-
-  /** NUEVO: conteo total de operarios (cod_rol = 2) */
+  /** Conteo total de operarios (cod_rol = 2). Útil para métricas de cobertura. */
   public async contarOperarios(): Promise<{ total: number }> {
     const rows = await this.ds.query(
       `SELECT COUNT(*) AS total FROM usuarios WHERE cod_rol = 2`
@@ -1117,7 +1173,14 @@ public async participacionSemanal(
     return { total: Number(rows?.[0]?.total ?? 0) };
   }
 
-  // ============== SOBRESCRIBIR QUIZ (ahora: UPSERT SEGURO) ==============
+  // ============== SOBRESCRIBIR QUIZ (upsert seguro de preguntas) ==============
+
+  /**
+   * Sobrescribe la estructura de un quiz:
+   * - Upsert de preguntas existentes por codPregunta.
+   * - Borra dependencias sólo si no tienen respuestas.
+   * - Archiva preguntas con respuestas que desaparecen del payload.
+   */
   public async sobrescribirQuiz(codReto: number, preguntas: any[]) {
     const reto = await this.retoRepo.findOne({ where: { codReto } });
     if (!reto) throw new NotFoundException("Reto no encontrado");
@@ -1184,9 +1247,11 @@ public async participacionSemanal(
         }
 
         if (codPregunta && actualById.has(codPregunta)) {
+          // Actualizar pregunta existente
           vistos.add(codPregunta);
           const prev = actualById.get(codPregunta)!;
           const tieneResp = (respCounts[codPregunta] ?? 0) > 0;
+          // Si ya tiene respuestas, se respeta el tipo original
           const tipoToUse = tieneResp ? prev.tipo : tipo;
 
           await qr.manager.query(
@@ -1230,6 +1295,7 @@ public async participacionSemanal(
 
           upserted++;
         } else {
+          // Insert de nueva pregunta
           const res = await qr.manager.query(
             `INSERT INTO preguntas (numero_pregunta, enunciado_pregunta, tipo_pregunta, puntos_pregunta, tiempo_max_pregunta, cod_reto)
            VALUES (?, ?, ?, ?, ?, ?)`,
@@ -1258,7 +1324,7 @@ public async participacionSemanal(
         }
       }
 
-      // Bajas/archivados
+      // Bajas / archivados (preguntas antiguas no presentes en payload)
       let eliminadas = 0;
       let archivadas = 0;
       for (const p of actuales) {
@@ -1302,7 +1368,12 @@ public async participacionSemanal(
     }
   }
 
-  // ------- helpers -------
+  // ------- helpers internos de mapeo y dependencias -------
+
+  /**
+   * Normaliza payload "plano" de reto a campos del entity,
+   * aplicando conversiones básicas de fecha y números.
+   */
   private cleanPayload(p: any): Partial<Reto> {
     const nombreReto: string | undefined = p?.nombreReto ?? p?.nombre_reto;
     const descripcionReto: string | null =
@@ -1328,6 +1399,10 @@ public async participacionSemanal(
     } as Partial<Reto>;
   }
 
+  /**
+   * Upsert de opciones de una pregunta tipo ABCD:
+   * mantiene opciones existentes, actualiza o crea nuevas y elimina las que ya no vienen.
+   */
   private async upsertOpcionesABCD(
     qr: any,
     codPregunta: number,
@@ -1366,7 +1441,7 @@ public async participacionSemanal(
       }
     }
 
-    // Borrar las que ya no están
+    // Borrar las opciones que ya no aparecen en el payload
     if (existentes.length) {
       const aBorrar = existentes
         .map((o) => o.codOpcion)
@@ -1381,6 +1456,9 @@ public async participacionSemanal(
     }
   }
 
+  /**
+   * Upsert de pregunta tipo rellenar: actualiza o crea registro en preguntas_rellenar.
+   */
   private async upsertRellenar(
     qr: any,
     codPregunta: number,
@@ -1404,6 +1482,9 @@ public async participacionSemanal(
     }
   }
 
+  /**
+   * Upsert para preguntas de tipo reporte (configura instrucciones y tipos de archivo).
+   */
   private async upsertReporte(qr: any, codPregunta: number, data: any) {
     const instrucciones =
       String(data?.instrucciones ?? "").trim() ||
@@ -1434,6 +1515,9 @@ public async participacionSemanal(
     }
   }
 
+  /**
+   * Reemplaza completamente la estructura de emparejar (items A/B + parejas).
+   */
   private async replaceEmparejar(qr: any, codPregunta: number, emp: any) {
     const A: string[] = Array.isArray(emp?.A) ? emp.A : [];
     const B: string[] = Array.isArray(emp?.B) ? emp.B : [];
@@ -1443,7 +1527,7 @@ public async participacionSemanal(
     if (A.length === 0 || B.length === 0)
       throw new BadRequestException("Emparejar: requiere listas A y B");
 
-    // Borra items/pParejas y vuelve a crear
+    // Borra items/parejas actuales y vuelve a crear
     await qr.manager.query(
       `DELETE FROM parejas_correctas WHERE cod_pregunta=?`,
       [codPregunta]
@@ -1481,12 +1565,16 @@ public async participacionSemanal(
     }
   }
 
+  /**
+   * Reemplaza completamente la lista de cargos asociados a un reto.
+   * Elimina relaciones anteriores y re-inserta las nuevas.
+   */
   private async replaceCargosForReto(
     trx: DataSource | { query: Function },
     codReto: number,
     cargoIds: number[]
   ) {
-    // Limpia actuales
+    // Limpia asociaciones actuales
     await (trx as any).query(`DELETE FROM cargos_retos WHERE cod_reto=?`, [
       codReto,
     ]);
@@ -1497,7 +1585,7 @@ public async participacionSemanal(
 
     if (!ids.length) return;
 
-    // Inserción masiva
+    // Inserción masiva (bulk insert)
     const values = ids.map(() => "(?, ?)").join(",");
     const params: any[] = [];
     for (const id of ids) {
@@ -1509,6 +1597,9 @@ public async participacionSemanal(
     );
   }
 
+  /**
+   * Limpia dependencias específicas de una pregunta según el tipo anterior.
+   */
   private async clearTipoDependientes(
     qr: any,
     codPregunta: number,
@@ -1536,6 +1627,10 @@ public async participacionSemanal(
     // tipo 'reporte': sin dependientes en tu esquema
   }
 
+  /**
+   * Limpia todas las dependencias de una pregunta (abcd, rellenar, emparejar).
+   * Se usa antes de borrar la pregunta por completo.
+   */
   private async clearAllTipos(qr: any, codPregunta: number) {
     await qr.manager.query(
       `DELETE FROM parejas_correctas WHERE cod_pregunta=?`,
@@ -1555,33 +1650,38 @@ public async participacionSemanal(
     // nada para 'reporte'
   }
 
-  // Dentro de RetoService
-public async cargosDeReto(codReto: number): Promise<Array<{ id: number; nombre: string }>> {
-  const id = Number(codReto);
-  if (!Number.isFinite(id) || id <= 0) throw new BadRequestException('codReto inválido');
+  /**
+   * Devuelve los cargos asociados a un reto en forma { id, nombre }.
+   * Útil para poblar selects al editar retos.
+   */
+  public async cargosDeReto(codReto: number): Promise<Array<{ id: number; nombre: string }>> {
+    const id = Number(codReto);
+    if (!Number.isFinite(id) || id <= 0) throw new BadRequestException('codReto inválido');
 
-  const rows = await this.ds.query(
-    `
+    const rows = await this.ds.query(
+      `
     SELECT cu.cod_cargo_usuario AS id, cu.nombre_cargo AS nombre
     FROM cargos_retos cr
     JOIN cargos_usuarios cu ON cu.cod_cargo_usuario = cr.cod_cargo_usuario
     WHERE cr.cod_reto = ?
     ORDER BY cu.nombre_cargo ASC
     `,
-    [id]
-  );
-  return rows; // [{id, nombre}]
-}
-
+      [id]
+    );
+    return rows; // [{id, nombre}]
+  }
 }
 
 /* ===== Utils ===== */
+
+/** Convierte a entero o null si no es parseable. */
 function toIntOrNull(v: any): number | null {
   if (v === undefined || v === null || v === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : null;
 }
 
+/** Intenta parsear JSON de forma segura; si falla, devuelve null. */
 function safeParseJson(v: any): any {
   if (!v) return null;
   if (typeof v === "object") return v;
@@ -1608,12 +1708,17 @@ function toMySqlDateOrNull(v: any): string | null {
   return d.isValid() ? d.format("YYYY-MM-DD") : null;
 }
 
+/** Formatea un Date/value a DATETIME MySQL (YYYY-MM-DD HH:mm:ss) o null. */
 function toMySqlDateTimeOrNull(v: any): string | null {
   if (v === undefined || v === null || v === "") return null;
   const d = dayjs(v);
   return d.isValid() ? d.format("YYYY-MM-DD HH:mm:ss") : null;
 }
 
+/**
+ * Elige un icono razonable para el reto a partir del tipo o metadata.
+ * Permite íconos custom (emoji / Ionicon) vía metadata.
+ */
 function pickIcon(tipo: string, meta?: any): string {
   const fromMeta = (meta?.icon ?? meta?.icono ?? meta?.emoji ?? "")
     .toString()

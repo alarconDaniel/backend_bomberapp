@@ -6,6 +6,10 @@ import { UsuarioLogroModule } from '../usuario-logro/usuario-logro.module';
 import { ConexionModule } from 'src/config/conexion/conexion.module';
 import { PerfilService } from './perfil.service';
 
+/**
+ * Módulo de perfil: orquesta usuario, stats y logros
+ * para exponer los endpoints de "mi-perfil".
+ */
 @Module({
   imports: [ConexionModule, UsuarioModule, EstadisticaUsuarioModule, UsuarioLogroModule],
   controllers: [PerfilController],

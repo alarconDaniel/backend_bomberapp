@@ -6,6 +6,11 @@ import { UsuarioModule } from '../usuario/usuario.module';
 import { EstadisticaUsuarioModule } from '../estadistica-usuario/estadistica-usuario.module';
 import { TrofeoModule } from '../trofeo/trofeo.module';
 
+/**
+ * Módulo de ranking global:
+ * - Expone el controlador de ranking público.
+ * - Orquesta estadísticas, usuarios y trofeos para armar el resumen.
+ */
 @Module({
   imports: [ConexionModule, UsuarioModule, EstadisticaUsuarioModule, TrofeoModule],
   controllers: [RankingController],

@@ -5,12 +5,14 @@ import { Usuario } from '../../../models/usuario/usuario';
 import { ArchivoService } from './archivo.service';
 import { ArchivoController } from './archivo.controller';
 
-
-
+/**
+ * Módulo de gestión de archivos.
+ * Agrupa controlador, servicio y entidades relacionadas a archivos de usuario.
+ */
 @Module({
   controllers: [ArchivoController],
   imports: [
-    TypeOrmModule.forFeature([Archivo, Usuario]),          
+    TypeOrmModule.forFeature([Archivo, Usuario]),
   ],
   providers: [ArchivoService],
   exports: [ArchivoService],

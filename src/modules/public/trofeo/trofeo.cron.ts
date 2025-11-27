@@ -22,11 +22,14 @@ function norm(s?: string) {
 
 type TrofeoKind = 'RACHA' | 'VEL_PROM' | 'UPLOAD';
 
+/**
+ * Clasifica el trofeo según su nombre para decidir qué regla aplicar.
+ */
 function pickTrofeoKind(nombre: string): TrofeoKind | null {
   const n = norm(nombre);
   if (n.includes('racha')) return 'RACHA'; // Racha Imparable
-  if (n.includes('relamp') || n.includes('rapido') || n.includes('tiempo') || n.includes('promedio')) return 'VEL_PROM'; // Relámpago
-  if (n.includes('upload') || n.includes('retos') || n.includes('info') || n.includes('informacion')) return 'UPLOAD'; // Upload ON
+  if (n.includes('relamp') || n.includes('rapido') || n.includes('tiempo') || n.includes('promedio')) return 'VEL_PROM'; // Relámpago / velocidad promedio
+  if (n.includes('upload') || n.includes('retos') || n.includes('info') || n.includes('informacion')) return 'UPLOAD'; // Upload ON / retos completados
   return null;
 }
 
@@ -36,7 +39,10 @@ export class TrofeoCron {
 
   constructor(private readonly ds: DataSource) {}
 
-  // 10pm hora de Bogotá
+  /**
+   * Cron diario (22:00 Bogotá): recorre todos los trofeos y recalcula
+   * únicamente aquellos que tienen una regla automática asignada.
+   */
   @Cron(CronExpression.EVERY_DAY_AT_10PM, { timeZone: 'America/Bogota' })
   async refresh() {
     const trofeoRepo = this.ds.getRepository(Trofeo);
@@ -47,7 +53,9 @@ export class TrofeoCron {
         const nombre = (t as any)?.nombre ?? (t as any)?.nombreTrofeo ?? '';
         const kind = pickTrofeoKind(nombre);
         if (!kind) {
-          this.log.debug(`Trofeo ${t['codTrofeo'] ?? (t as any)?.cod_trofeo ?? '?'} ignora (sin regla): ${nombre}`);
+          this.log.debug(
+            `Trofeo ${t['codTrofeo'] ?? (t as any)?.cod_trofeo ?? '?'} ignora (sin regla): ${nombre}`,
+          );
           continue;
         }
         await this.recomputeTrofeo(t['codTrofeo'] ?? (t as any)?.cod_trofeo);
@@ -59,7 +67,11 @@ export class TrofeoCron {
     }
   }
 
-  // Invocable desde endpoint
+  /**
+   * Recalcula un trofeo concreto dentro de una transacción:
+   * bloquea el trofeo, resuelve ganador, actualiza dueño y registra auditoría.
+   * Invocado por el cron y por el endpoint manual.
+   */
   async recomputeTrofeo(codTrofeo: number) {
     if (!codTrofeo) return;
 
@@ -68,7 +80,7 @@ export class TrofeoCron {
       const userRepo = trx.getRepository(Usuario);
       const auditRepo = trx.getRepository(AuditoriaTrofeo);
 
-      // 1) Lock
+      // 1) Lock del trofeo para evitar carreras entre procesos
       const trofeo = await trofeoRepo
         .createQueryBuilder('t')
         .setLock('pessimistic_write')
@@ -81,27 +93,27 @@ export class TrofeoCron {
       const kind = pickTrofeoKind(nombre);
       if (!kind) return;
 
-      // 2) Resolver ganador
+      // 2) Resolver ganador según la regla del trofeo
       const ganador = await this.resolverGanador(trx, kind);
       if (!ganador.codUsuario) return;
 
-      // 3) Dueño previo (la relación es eager en tu entity)
+      // 3) Dueño previo (relación eager en la entity)
       const prevId: number | null = (trofeo as any)?.dueño?.codUsuario ?? null;
       const nextId = ganador.codUsuario;
 
       if (prevId === nextId) return; // sin cambios
 
-      // 4) Cargar usuarios para auditoría
+      // 4) Cargar usuarios para dejar traza completa en auditoría
       const nextUser = await userRepo.findOne({ where: { codUsuario: nextId } });
       const prevUser = prevId ? await userRepo.findOne({ where: { codUsuario: prevId } }) : null;
 
-      // 5) Actualizar dueño (NO intentes setear codUsuario: no es propiedad mapeable)
+      // 5) Actualizar dueño (se setea la relación, no el campo numérico)
       await trofeoRepo.update(
         { codTrofeo },
-        (nextUser ? { ['dueño' as any]: nextUser } : { ['dueño' as any]: null }) as any
+        (nextUser ? { ['dueño' as any]: nextUser } : { ['dueño' as any]: null }) as any,
       );
 
-      // 6) Auditoría
+      // 6) Registro en tabla de auditoría
       const audit = auditRepo.create({
         trofeo,
         prevUsuario: prevUser ?? null,
@@ -112,20 +124,25 @@ export class TrofeoCron {
       } as any);
       await auditRepo.save(audit);
 
-      this.log.log(`Trofeo ${codTrofeo} → ${nombre} reasignado a usuario ${nextId} por ${ganador.motivo}`);
+      this.log.log(
+        `Trofeo ${codTrofeo} → ${nombre} reasignado a usuario ${nextId} por ${ganador.motivo}`,
+      );
     });
   }
 
-  // Reglas
+  /**
+   * Aplica la regla correspondiente a cada tipo de trofeo y devuelve
+   * el usuario ganador junto con el contexto de métricas para auditoría.
+   */
   private async resolverGanador(trx: EntityManager, kind: TrofeoKind): Promise<Ganador> {
     switch (kind) {
       case 'RACHA': {
-        // Racha Imparable → racha ACTUAL (estadisticas_usuarios.racha_estadistica)
+        // Racha Imparable → mayor racha actual en estadisticas_usuarios
         const row = await trx
           .getRepository(EstadisticaUsuario)
           .createQueryBuilder('eu')
           .leftJoin('eu.usuario', 'u')
-          .select('eu.racha', 'racha')               // entity: racha ↔ DB: racha_estadistica
+          .select('eu.racha', 'racha') // entity: racha ↔ DB: racha_estadistica
           .addSelect('u.codUsuario', 'codUsuario')
           .orderBy('eu.racha', 'DESC')
           .addOrderBy('u.codUsuario', 'ASC')
@@ -140,7 +157,7 @@ export class TrofeoCron {
       }
 
       case 'VEL_PROM': {
-        // Relámpago en la Cabeza → menor tiempo promedio
+        // Relámpago / tiempo promedio → menor tiempo medio de completación
         const rows = await trx.query(`
           SELECT
             ur.cod_usuario AS codUsuario,
@@ -167,7 +184,7 @@ export class TrofeoCron {
       }
 
       case 'UPLOAD': {
-        // Modo Upload: ON → más retos completados
+        // Modo Upload: ON → mayor número de retos completados
         const rows = await trx.query(`
           SELECT
             ur.cod_usuario AS codUsuario,

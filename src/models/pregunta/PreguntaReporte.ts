@@ -1,31 +1,47 @@
-// src/db/entities/preguntas/PreguntaReporte.ts
-import { Column, Entity, PrimaryGeneratedColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
-import { Pregunta } from './pregunta';
-import { ReporteCargado } from './ReporteCargado';
+// // src/db/entities/preguntas/PreguntaReporte.ts
+// import {
+//   Column,
+//   Entity,
+//   PrimaryGeneratedColumn,
+//   ManyToOne,
+//   JoinColumn,
+//   OneToMany,
+// } from 'typeorm';
+// import { Pregunta } from './pregunta';
+// import { ReporteCargado } from './ReporteCargado';
 
-@Entity({ name: 'preguntas_reporte' })
-export class PreguntaReporte {
-  @PrimaryGeneratedColumn({ name: 'cod_pregunta_reporte', type: 'int' })
-  codPreguntaReporte!: number;
+// @Entity({ name: 'preguntas_reporte' })
+// export class PreguntaReporte {
+//   // Id interno del “subtipo” de pregunta que exige subir un archivo / reporte
+//   @PrimaryGeneratedColumn({ name: 'cod_pregunta_reporte', type: 'int' })
+//   codPreguntaReporte!: number;
 
-  @Column({ name: 'instrucciones_pregunta', type: 'varchar', length: 255 })
-  instrucciones!: string;
+//   // Texto corto que se muestra como instrucciones al usuario (ej: “Adjuntar reporte técnico en PDF”)
+//   @Column({ name: 'instrucciones_pregunta', type: 'varchar', length: 255 })
+//   instrucciones!: string;
 
-  // MySQL SET -> puedes mapear como 'set' si tu TypeORM lo soporta; si no, usa 'simple-array'
-  @Column({
-    name: 'tipo_archivo_permitido',
-    type: 'set',
-    enum: ['pdf', 'jpg', 'png', 'docx'],
-  })
-  tiposPermitidos!: ('pdf'|'jpg'|'png'|'docx')[];
+//   // SET de tipos de archivo permitidos para esta pregunta (pdf, imágenes, docs, etc.)
+//   // En BD se usa un SET; aquí se refleja como array de strings restringidos al enum
+//   @Column({
+//     name: 'tipo_archivo_permitido',
+//     type: 'set',
+//     enum: ['pdf', 'jpg', 'png', 'docx'],
+//   })
+//   tiposPermitidos!: ('pdf' | 'jpg' | 'png' | 'docx')[];
 
-  @Column({ name: 'cod_pregunta', type: 'int' })
-  codPregunta!: number;
+//   // FK cruda a preguntas.cod_pregunta (pregunta padre de tipo "reporte"/"archivo")
+//   @Column({ name: 'cod_pregunta', type: 'int' })
+//   codPregunta!: number;
 
-  @ManyToOne(() => Pregunta, (p) => p.reporte, { onDelete: 'NO ACTION', onUpdate: 'NO ACTION' })
-  @JoinColumn({ name: 'cod_pregunta', referencedColumnName: 'codPregunta' })
-  pregunta!: Pregunta;
+//   // Relación con la pregunta principal; una pregunta puede tener exactamente una config de reporte
+//   @ManyToOne(() => Pregunta, (p) => p.reporte, {
+//     onDelete: 'NO ACTION',
+//     onUpdate: 'NO ACTION',
+//   })
+//   @JoinColumn({ name: 'cod_pregunta', referencedColumnName: 'codPregunta' })
+//   pregunta!: Pregunta;
 
-  @OneToMany(() => ReporteCargado, (r) => r.preguntaReporte)
-  reportes!: ReporteCargado[];
-}
+//   // Reportes/archivos que el usuario ha cargado para esta configuración de pregunta
+//   @OneToMany(() => ReporteCargado, (r) => r.preguntaReporte)
+//   reportes!: ReporteCargado[];
+// }

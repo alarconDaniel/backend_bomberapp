@@ -9,12 +9,13 @@ export class ItemTiendaService {
   private itemTiendaRepository: Repository<ItemTienda>;
 
   constructor(private poolConexion: DataSource) {
+    // Repositorio principal de ítems de tienda
     this.itemTiendaRepository = poolConexion.getRepository(ItemTienda);
   }
 
   /**
-   * Fecha del día en zona horaria de Bogotá (America/Bogota), formato YYYY-MM-DD.
-   * Esto asegura que la rotación cambie a las 00:00 hora local de Colombia.
+   * Devuelve la fecha del día en zona horaria de Bogotá (America/Bogota), formato YYYY-MM-DD.
+   * Se usa como base para que la rotación de ropa cambie a las 00:00 hora local de Colombia.
    */
   private hoyBogotaString(): string {
     const fmt = new Intl.DateTimeFormat('en-US', {
@@ -30,7 +31,10 @@ export class ItemTiendaService {
     return `${y}-${m}-${d}`;
   }
 
-  /** Hash sencillo a partir de un string (para semilla determinística) */
+  /**
+   * Hash sencillo y determinístico a partir de un string.
+   * Sirve como semilla estable para el PRNG de rotación diaria.
+   */
   private simpleHash(str: string): number {
     let h = 2166136261 >>> 0; // FNV offset basis (32-bit)
     for (let i = 0; i < str.length; i++) {
@@ -40,7 +44,10 @@ export class ItemTiendaService {
     return h >>> 0;
   }
 
-  /** PRNG lineal congruente determinístico (32-bit) */
+  /**
+   * PRNG lineal congruente (LCG) basado en una semilla de 32 bits.
+   * No es criptográficamente seguro, pero es suficiente para rotación de catálogo.
+   */
   private lcg(seed: number) {
     let s = seed >>> 0;
     return () => {
@@ -49,7 +56,10 @@ export class ItemTiendaService {
     };
   }
 
-  /** Baraja determinística con PRNG provisto */
+  /**
+   * Baraja un arreglo de forma determinística usando un PRNG basado en semilla.
+   * Útil para rotar la ropa diaria sin tocar la BD.
+   */
   private shuffleSeeded<T>(arr: T[], seed: number): T[] {
     const prng = this.lcg(seed);
     const a = arr.slice();
@@ -61,7 +71,10 @@ export class ItemTiendaService {
     return a;
   }
 
-  /** Selecciona N prendas de ropa de forma determinística por día (sin tocar BD) */
+  /**
+   * Selecciona N prendas de ropa de forma determinística por día.
+   * La selección se basa en la fecha de Bogotá + un shuffle con semilla.
+   */
   private seleccionarRopaDelDia(ropa: ItemTienda[], n = 3): ItemTienda[] {
     if (ropa.length <= n) return ropa; // si hay <=3, muestra todas
     const seed = this.simpleHash(this.hoyBogotaString());
@@ -70,9 +83,9 @@ export class ItemTiendaService {
   }
 
   /**
-   * Devuelve la lista de items de tienda visible para el usuario:
-   * - Para ROPA: solo las 3 del día (según medianoche America/Bogota)
-   * - Para todo: añade flag yaPosee según inventario del usuario
+   * Lista de ítems visibles para el usuario:
+   * - La ropa se limita a la rotación diaria (máx 3 prendas).
+   * - Marca `yaPosee` según el inventario actual del usuario.
    */
   public async listarObjetos(codUsuario: number): Promise<any> {
     const repoInv = this.poolConexion.getRepository(ItemInventario);
@@ -85,6 +98,7 @@ export class ItemTiendaService {
       }),
     ]);
 
+    // Conjunto de ítems (codItem) que el usuario ya posee en su inventario
     const setPoseidos = new Set<number>(
       invUsuario.map((ii) => ii.item?.codItem).filter(Boolean) as number[],
     );
@@ -92,6 +106,7 @@ export class ItemTiendaService {
     const ropa = todos.filter((t) => String(t.tipoItem).toUpperCase() === 'ROPA');
     const otros = todos.filter((t) => String(t.tipoItem).toUpperCase() !== 'ROPA');
 
+    // Rotación diaria de ropa (independiente de la BD)
     const ropaDelDia = this.seleccionarRopaDelDia(ropa, 3);
 
     const visibles = [...otros, ...ropaDelDia]
@@ -115,6 +130,12 @@ export class ItemTiendaService {
     };
   }
 
+  /**
+   * Compra un ítem de la tienda:
+   * - Valida usuario, existencia de ítem y monedas suficientes.
+   * - Para ROPA: es única (cantidad 1, sin duplicados en inventario).
+   * - Actualiza monedas y hace upsert en inventario dentro de una transacción.
+   */
   public async comprarItem(codUsuario: number, codItem: number, cantidad: number) {
     if (!codUsuario) throw new BadRequestException('Usuario no autenticado');
     if (!Number.isInteger(codItem) || codItem <= 0) throw new BadRequestException('codItem inválido');
@@ -128,6 +149,7 @@ export class ItemTiendaService {
       const statsRepo = qr.manager.getRepository(EstadisticaUsuario);
       const invRepo = qr.manager.getRepository(ItemInventario);
 
+      // 1) Validar ítem
       const item = await itemRepo.findOne({ where: { codItem } });
       if (!item) throw new NotFoundException('Item no encontrado');
 
@@ -144,6 +166,7 @@ export class ItemTiendaService {
         }
       }
 
+      // 2) Validar monedas disponibles
       const precio = Number(item.precioItem || 0);
       const costo = precio * (isRopa ? 1 : cantidad);
 
@@ -154,11 +177,13 @@ export class ItemTiendaService {
         throw new BadRequestException('Monedas insuficientes');
       }
 
-      // Descuenta monedas
+      // 3) Descontar monedas
       stats.monedas = stats.monedas - costo;
       await statsRepo.save(stats);
 
-      // Upsert inventario (sumar si ya existe). Para ROPA no debería existir (ya validado arriba)
+      // 4) Upsert en inventario:
+      //    - ROPA: no debe existir (ya validado)
+      //    - Otros: suma cantidad si ya hay registro
       let inv = await invRepo.findOne({ where: { usuario: { codUsuario }, item: { codItem } } });
       if (inv) {
         inv.cantidad = inv.cantidad + (isRopa ? 0 : cantidad);
@@ -178,7 +203,12 @@ export class ItemTiendaService {
         data: {
           inventario: inv,
           stats: { monedas: stats.monedas, racha: stats.racha, xp: stats.xp },
-          item: { codItem: item.codItem, nombreItem: item.nombreItem, precioItem: item.precioItem, tipoItem: item.tipoItem },
+          item: {
+            codItem: item.codItem,
+            nombreItem: item.nombreItem,
+            precioItem: item.precioItem,
+            tipoItem: item.tipoItem,
+          },
           cantidadComprada: isRopa ? 1 : cantidad,
           costo,
         },

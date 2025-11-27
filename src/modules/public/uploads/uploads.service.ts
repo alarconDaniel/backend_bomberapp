@@ -1,4 +1,6 @@
 // src/modules/public/uploads/uploads.service.ts
+// Servicio de integración con S3/MinIO: genera URLs firmadas y expone helpers básicos de almacenamiento.
+
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import {
   S3Client, PutObjectCommand, GetObjectCommand,
@@ -39,7 +41,7 @@ export class UploadsService {
     this.s3 = new S3Client({
       region,
       endpoint,
-      forcePathStyle: true, // MinIO
+      forcePathStyle: true, // compatibilidad MinIO
       credentials: { accessKeyId, secretAccessKey },
     });
 
@@ -48,7 +50,7 @@ export class UploadsService {
     this.publicBase = process.env.S3_PUBLIC_BASE;
   }
 
-
+  // Normaliza el nombre para usarlo seguro como parte del key en S3/MinIO
   private slugForS3(name: string) {
     // Normaliza a ASCII: quita diacríticos y colapsa espacios / símbolos problemáticos
     return name
@@ -59,12 +61,14 @@ export class UploadsService {
       .slice(0, 180);                   // margen por si agregas timestamp y carpetas
   }
 
+  // Construye el key lógico del usuario (incluyendo área y timestamp)
   private buildUserKey(codUsuario: number, filename: string, tipo?: TipoArea) {
     const safeBase = this.slugForS3(filename || 'archivo');
     const areaSeg = tipo ? `/${tipo}` : '';
     return `usuarios/${codUsuario}${areaSeg}/${Date.now()}-${safeBase}`;
   }
 
+  // Genera URL firmada de subida (PUT) y devuelve también el key y la URL pública opcional
   async createSignedUploadUrl({ filename, contentType, codUsuario, tipo }: PresignArgs) {
     const Key = this.buildUserKey(codUsuario, filename, tipo);
 
@@ -89,12 +93,14 @@ export class UploadsService {
     };
   }
 
+  // Genera URL firmada de descarga (GET) para un key ya existente
   async createSignedDownloadUrl(key: string) {
     const cmd = new GetObjectCommand({ Bucket: this.bucket, Key: key });
     const url = await getSignedUrl(this.s3, cmd, { expiresIn: this.expiresIn });
     return { url, expiresIn: this.expiresIn };
   }
 
+  // Lista objetos de un usuario por prefijo lógico en el bucket
   async listByUser(codUsuario: number) {
     const Prefix = `usuarios/${codUsuario}/`;
     const cmd = new ListObjectsV2Command({ Bucket: this.bucket, Prefix });
@@ -111,11 +117,13 @@ export class UploadsService {
     return { prefix: Prefix, items };
   }
 
+  // Elimina de S3/MinIO un objeto por key
   async deleteObject(key: string) {
     await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
     return { deleted: true, key };
   }
 
+  // Obtiene el stream crudo del objeto (para hacer pipe al response HTTP)
   async getObjectRaw(key: string): Promise<{
     body: Readable;
     contentType?: string;

@@ -17,6 +17,11 @@ export class RespuestasService {
   ) {}
 
   // ---------------- Preguntas individuales ----------------
+
+  /**
+   * Crea una respuesta para una pregunta de quiz ligada a un usuario-reto.
+   * Persistimos directamente los campos calculados por el motor de evaluación.
+   */
   async crearRespuestaPregunta(dto: CreateRespuestaPreguntaDto) {
     const entity = this.repoPreg.create({
       codUsuarioReto: dto.codUsuarioReto,
@@ -29,6 +34,10 @@ export class RespuestasService {
     return this.repoPreg.save(entity);
   }
 
+  /**
+   * Devuelve todas las respuestas de preguntas asociadas
+   * a un usuario-reto, ordenadas por fecha de respuesta.
+   */
   getRespuestasPreguntaByUsuarioReto(codUsuarioReto: number) {
     return this.repoPreg.find({
       where: { codUsuarioReto },
@@ -37,6 +46,11 @@ export class RespuestasService {
   }
 
   // ---------------- Formularios completos ----------------
+
+  /**
+   * Crea una respuesta de formulario (payload completo en JSON)
+   * para un usuario-reto dentro de un reto específico.
+   */
   async crearRespuestaFormulario(dto: CreateRespuestaFormularioDto) {
     const entity = this.repoForm.create({
       codUsuarioReto: dto.codUsuarioReto,
@@ -47,10 +61,18 @@ export class RespuestasService {
     return this.repoForm.save(entity);
   }
 
+  /**
+   * Lista todas las respuestas de formulario registradas para un reto.
+   * Útil para revisión/corrección en backoffice.
+   */
   getRespuestasFormularioByReto(codReto: number) {
     return this.repoForm.find({ where: { codReto } });
   }
 
+  /**
+   * Recupera una respuesta de formulario por su ID interno.
+   * Lanza 404 si no existe.
+   */
   async getRespuestaFormulario(id: number) {
     const found = await this.repoForm.findOne({ where: { codRespuestaForm: id } });
     if (!found) throw new NotFoundException('Respuesta de formulario no encontrada');

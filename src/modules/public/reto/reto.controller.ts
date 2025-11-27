@@ -16,36 +16,56 @@ import {
 import { AuthGuard } from "@nestjs/passport";
 import { Request } from "express";
 import * as dayjs from "dayjs";
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiTags } from "@nestjs/swagger";
 
 import { RetoService } from "./reto.service";
 import { UsuarioService } from "src/modules/public/usuario/usuario.service";
 
 @UseGuards(AuthGuard("jwt"))
+@ApiBearerAuth('access-token')
+@ApiTags("Retos")
 @Controller("reto")
 export class RetoController {
   constructor(
     private readonly retoService: RetoService,
-    private readonly usuarioService: UsuarioService
+    private readonly usuarioService: UsuarioService,
   ) {}
 
   /** DTO compacto (para selects/listas) */
   @Get("listar-dto")
+  @ApiOperation({
+    summary: "Listar retos (compacto)",
+    description: "Devuelve un listado resumido de retos para combos/tablas ligeras.",
+  })
   listar() {
     return this.retoService.listar();
   }
 
   /** RAW find() (compatibilidad) */
   @Get("listar")
+  @ApiOperation({
+    summary: "Listar retos (raw)",
+    description: "Listado directo usando find() para compatibilidad con código legado.",
+  })
   listarRetos() {
     return this.retoService.listarRetos();
   }
 
   @Get("ver/:cod")
+  @ApiOperation({
+    summary: "Ver detalle básico de un reto",
+  })
+  @ApiParam({ name: "cod", type: Number, description: "Código interno del reto" })
   verReto(@Param("cod", ParseIntPipe) cod: number) {
     return this.retoService.verReto(cod);
   }
 
   @Get("ver/full/:cod")
+  @ApiOperation({
+    summary: "Ver detalle completo de un reto",
+    description: "Incluye estructura completa del reto (por ejemplo, preguntas de un quiz).",
+  })
+  @ApiParam({ name: "cod", type: Number, description: "Código interno del reto" })
   async verRetoFull(@Param("cod", ParseIntPipe) cod: number) {
     return this.retoService.verRetoFull(cod);
   }
@@ -55,14 +75,30 @@ export class RetoController {
    * GET /reto/dia?fecha=YYYY-MM-DD&usuario=ID
    */
   @Get("dia")
+  @ApiOperation({
+    summary: "Listar retos asignados en un día",
+    description:
+      "Devuelve las asignaciones del usuario para una fecha específica (no permite fechas futuras).",
+  })
+  @ApiQuery({
+    name: "fecha",
+    required: false,
+    description: "Fecha en formato YYYY-MM-DD. Si se omite, se usa la fecha actual.",
+  })
+  @ApiQuery({
+    name: "usuario",
+    required: false,
+    description: "ID del usuario. Si se omite, se toma del JWT.",
+  })
   async listarPorDia(
     @Req() req: any,
     @Query("fecha") fecha?: string,
-    @Query("usuario") usuario?: string
+    @Query("usuario") usuario?: string,
   ) {
     const ymd = fecha || dayjs().format("YYYY-MM-DD");
     const uid = Number(usuario ?? req?.user?.sub);
     if (!uid) throw new BadRequestException("Falta usuario");
+
     const hoy = dayjs().format("YYYY-MM-DD");
     if (dayjs(ymd).isAfter(hoy)) {
       throw new BadRequestException("No puedes ver días futuros");
@@ -75,16 +111,31 @@ export class RetoController {
    * GET /reto/progreso-dia?fecha=YYYY-MM-DD[&usuario=ID]
    */
   @Get("progreso-dia")
+  @ApiOperation({
+    summary: "Resumen de progreso diario",
+    description:
+      "Devuelve métricas de progreso de retos del día para el usuario (HomeScreen).",
+  })
+  @ApiQuery({
+    name: "fecha",
+    required: false,
+    description: "Fecha en formato YYYY-MM-DD. Por defecto, hoy.",
+  })
+  @ApiQuery({
+    name: "usuario",
+    required: false,
+    description: "ID del usuario. Si se omite, se toma del JWT.",
+  })
   async progresoDia(
     @Req() req: any,
     @Query("fecha") fecha?: string,
-    @Query("usuario") usuario?: string
+    @Query("usuario") usuario?: string,
   ) {
     const ymd = fecha || dayjs().format("YYYY-MM-DD");
     const uid = usuario ? Number(usuario) : Number(req?.user?.sub ?? -1);
     return this.retoService.progresoDia(
       ymd,
-      Number.isFinite(uid) ? uid : undefined
+      Number.isFinite(uid) ? uid : undefined,
     );
   }
 
@@ -93,6 +144,16 @@ export class RetoController {
    * GET /reto/operarios-dia?fecha=YYYY-MM-DD
    */
   @Get("operarios-dia")
+  @ApiOperation({
+    summary: "Operarios del día",
+    description:
+      "Devuelve estadísticas diarias de operarios para la vista de HomeScreen.",
+  })
+  @ApiQuery({
+    name: "fecha",
+    required: false,
+    description: "Fecha en formato YYYY-MM-DD. Por defecto, hoy.",
+  })
   async operariosDia(@Query("fecha") fecha?: string) {
     const ymd = fecha || dayjs().format("YYYY-MM-DD");
     return this.retoService.operariosStatsDia(ymd);
@@ -100,35 +161,71 @@ export class RetoController {
 
   /** Total de operarios (cod_rol = 2) */
   @Get("operarios-count")
+  @ApiOperation({
+    summary: "Contar operarios",
+    description: "Devuelve el número total de operarios (usuarios con rol operario).",
+  })
   operariosCount() {
     return this.retoService.contarOperarios();
   }
 
   // En RetoController
   @Get("participacion-semanal")
+  @ApiOperation({
+    summary: "Participación semanal",
+    description:
+      "Agregado de participación en retos durante la semana que contiene la fecha dada.",
+  })
+  @ApiQuery({
+    name: "fecha",
+    required: false,
+    description: "Fecha de referencia (YYYY-MM-DD). Por defecto, hoy.",
+  })
   async participacionSemanal(@Query("fecha") fecha?: string) {
     const ymd = fecha || dayjs().format("YYYY-MM-DD");
     return this.retoService.participacionSemanal(ymd);
   }
 
   // ==== utilidades para pruebas de cron (opcionales) ====
+
   @Post("cron/asignar")
+  @ApiOperation({
+    summary: "Ejecutar asignación automática (test)",
+    description: "Simula el cron de asignación automática de retos para un día dado.",
+  })
+  @ApiQuery({
+    name: "fecha",
+    required: false,
+    description: "Fecha en formato YYYY-MM-DD. Por defecto, hoy.",
+  })
   async cronAsignar(@Query("fecha") fecha?: string) {
     const ymd = fecha || dayjs().format("YYYY-MM-DD");
     return this.retoService.asignarAutomaticosSiLaboral(ymd);
   }
 
   @Post("cron/vencer")
+  @ApiOperation({
+    summary: "Ejecutar vencimiento de retos (test)",
+    description: "Simula el cron que marca retos vencidos para una fecha dada.",
+  })
+  @ApiQuery({
+    name: "fecha",
+    required: false,
+    description: "Fecha en formato YYYY-MM-DD. Por defecto, hoy.",
+  })
   async cronVencer(@Query("fecha") fecha?: string) {
     const ymd = fecha || dayjs().format("YYYY-MM-DD");
     return this.retoService.marcarVencidos(ymd);
   }
 
-
-
   // -------- Crear reto genérico --------
   // Si tipo=quiz y viene preguntas[], crea el quiz completo (tablas), no solo metadata
   @Post("crear")
+  @ApiOperation({
+    summary: "Crear reto genérico",
+    description:
+      "Crea un reto (quiz, formulario o archivo). Si tipo=quiz y se envían preguntas, crea toda la estructura.",
+  })
   async crear(@Req() req: Request, @Body() body: any) {
     const u = (req as any).user;
     const ok = await isAdmin(u, (sub) => this.usuarioService.findById(sub));
@@ -139,6 +236,11 @@ export class RetoController {
 
   // -------- Crear QUIZ con estructura completa (ruta dedicada sigue existiendo) --------
   @Post("crear-quiz")
+  @ApiOperation({
+    summary: "Crear quiz con estructura completa",
+    description:
+      "Endpoint dedicado para crear un reto tipo quiz a partir de un payload estructurado (incluye preguntas).",
+  })
   async crearQuiz(@Req() req: Request, @Body() body: any) {
     const u = (req as any).user;
     const ok = await isAdmin(u, (sub) => this.usuarioService.findById(sub));
@@ -150,6 +252,11 @@ export class RetoController {
 
   // Modificar reto
   @Put("modificar")
+  @ApiOperation({
+    summary: "Modificar reto",
+    description:
+      "Actualiza la metadata de un reto existente. Requiere permisos de administrador.",
+  })
   async modificar(@Req() req: Request, @Body() body: any) {
     const u = (req as any).user;
     const ok = await isAdmin(u, (sub) => this.usuarioService.findById(sub));
@@ -163,9 +270,14 @@ export class RetoController {
   }
 
   @Delete("borrar/:codReto")
+  @ApiOperation({
+    summary: "Borrar reto",
+    description: "Elimina un reto y sus dependencias. Solo para administradores.",
+  })
+  @ApiParam({ name: "codReto", type: Number, description: "Código del reto a eliminar" })
   async borrar(
     @Req() req: Request,
-    @Param("codReto", ParseIntPipe) codReto: number
+    @Param("codReto", ParseIntPipe) codReto: number,
   ) {
     const u = (req as any).user;
     const ok = await isAdmin(u, (sub) => this.usuarioService.findById(sub));
@@ -175,6 +287,16 @@ export class RetoController {
 
   // QA: ver candidatos del cron según fecha
   @Get("cron/dry-run")
+  @ApiOperation({
+    summary: "Dry-run de cron de asignación",
+    description:
+      "Muestra qué usuarios y retos serían afectados por la asignación automática en una fecha dada.",
+  })
+  @ApiQuery({
+    name: "fecha",
+    required: false,
+    description: "Fecha en formato YYYY-MM-DD. Por defecto, hoy.",
+  })
   async dryRun(@Query("fecha") fecha?: string) {
     const ymd = fecha || dayjs().format("YYYY-MM-DD");
     const rows = await (this.retoService as any).ds.query(
@@ -191,15 +313,17 @@ export class RetoController {
         AND r.fecha_fin_reto   >= ?
       ORDER BY u.cod_usuario, r.cod_reto
       `,
-      [ymd, ymd]
+      [ymd, ymd],
     );
     return { fecha: ymd, candidatos: rows.length, rows };
   }
 
-  // Dentro de RetoController
-
-
   @Put("quiz/sobrescribir")
+  @ApiOperation({
+    summary: "Sobrescribir quiz existente",
+    description:
+      "Reemplaza por completo la estructura de preguntas de un reto tipo quiz.",
+  })
   async sobrescribirQuiz(@Body() body: any) {
     const codReto = Number(body?.codReto ?? body?.cod_reto);
     if (!Number.isFinite(codReto)) {
@@ -212,20 +336,32 @@ export class RetoController {
     return this.retoService.sobrescribirQuiz(codReto, preguntas);
   }
 
-
   @Get(":codReto")
+  @ApiOperation({
+    summary: "Detalle de reto (compatibilidad)",
+    description: "Devuelve los datos del reto identificado por codReto.",
+  })
+  @ApiParam({ name: "codReto", type: Number })
   detalle(@Param("codReto", ParseIntPipe) codReto: number) {
     return this.retoService.detalle(codReto);
   }
 
-    @Get(":cod/cargos")
+  @Get(":cod/cargos")
+  @ApiOperation({
+    summary: "Cargos asignados a un reto",
+    description: "Devuelve los cargos que tienen asociado el reto indicado.",
+  })
+  @ApiParam({ name: "cod", type: Number, description: "Código del reto" })
   async cargosDeReto(@Param("cod", ParseIntPipe) cod: number) {
     return this.retoService.cargosDeReto(cod);
   }
-
 }
 
 /* ===================== helpers ===================== */
+
+/**
+ * Intenta parsear un valor como JSON; si falla, lo devuelve tal cual.
+ */
 function parseMaybeJson<T = any>(v: any): T {
   if (typeof v === "string") {
     try {
@@ -252,6 +388,11 @@ function normalizeQuizPayload(body: any) {
 }
 
 // ===== helpers/roles.ts =====
+
+/**
+ * Heurística flexible para detectar si un objeto user representa a un admin,
+ * soportando distintos esquemas (flags, ids, nombres de rol, arrays de roles, etc.).
+ */
 function checkAdminShape(user: any): boolean {
   if (!user) return false;
   const flat = [
@@ -298,9 +439,13 @@ function checkAdminShape(user: any): boolean {
   return false;
 }
 
+/**
+ * Verifica si un usuario es admin usando la información del JWT
+ * y, si hace falta, cargando el usuario completo desde la BD.
+ */
 export async function isAdmin(
   user: any,
-  loader?: (sub: number) => Promise<any>
+  loader?: (sub: number) => Promise<any>,
 ): Promise<boolean> {
   if (checkAdminShape(user)) return true;
 
@@ -345,6 +490,9 @@ export async function isAdmin(
   return false;
 }
 
+/**
+ * Normaliza flags "booleanos" que puedan venir como string/número.
+ */
 function normalizeBool(v: any): boolean | undefined {
   if (v === true || v === false) return v;
   const s = String(v ?? "")
