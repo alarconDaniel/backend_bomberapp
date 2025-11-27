@@ -24,10 +24,11 @@ import {
   ApiOkResponse,
   ApiBearerAuth,
   ApiUnauthorizedResponse,
+  ApiResponse,
 } from '@nestjs/swagger';
 
 // Controlador de autenticación: login, refresh, perfil y logout
-@ApiTags('auth')
+@ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
   constructor(
@@ -43,7 +44,8 @@ export class AuthController {
   @Post('login')
   @ApiOperation({ summary: 'Iniciar sesión con email y contraseña' })
   @ApiBody({ type: LoginDto })
-  @ApiOkResponse({
+  @ApiResponse({
+    status: 201,
     description:
       'Retorna los datos básicos del usuario autenticado y los tokens de acceso/refresh.',
     schema: {
@@ -107,7 +109,8 @@ export class AuthController {
       required: ['refresh_token'],
     },
   })
-  @ApiOkResponse({
+  @ApiResponse({
+    status: 201,
     description:
       'Nuevo par de tokens (access y refresh) si el refresh enviado es válido.',
   })
@@ -202,7 +205,8 @@ export class AuthController {
       required: ['refresh_token'],
     },
   })
-  @ApiOkResponse({
+  @ApiResponse({
+        status: 201,
     description:
       'Confirma que el refresh token asociado al usuario fue invalidado.',
     schema: {

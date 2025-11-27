@@ -23,7 +23,7 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 
 @UseGuards(JwtAuthGuard)
-@ApiTags('Mis retos')
+@ApiTags('Mis Retos')
 @ApiBearerAuth('access-token') 
 @Controller('mis-retos')
 export class UsuarioRetoController {

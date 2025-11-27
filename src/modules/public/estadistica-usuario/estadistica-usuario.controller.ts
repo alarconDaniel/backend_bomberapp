@@ -4,7 +4,7 @@ import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 import { RachaCron } from './racha.cron';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
-@ApiTags('mis-stats')
+@ApiTags('Mis Stats')
 @ApiBearerAuth('access-token') 
 @Controller('mis-stats')
 export class EstadisticaUsuarioController {

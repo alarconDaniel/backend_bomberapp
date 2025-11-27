@@ -7,7 +7,7 @@ import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swa
  * Catálogos ligeros para la UI (combos / selects).
  * Por ahora sólo expone el catálogo de cargos de usuario.
  */
-@ApiTags('catálogos')
+@ApiTags('Catálogos')
 @ApiBearerAuth('access-token') 
 @UseGuards(AuthGuard('jwt'))
 @Controller('catalogos')

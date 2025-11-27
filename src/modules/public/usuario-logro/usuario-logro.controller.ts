@@ -10,7 +10,7 @@ import {
   ApiOkResponse,
 } from '@nestjs/swagger';
 
-@ApiTags('Mis logros')
+@ApiTags('Mis Logros')
 @ApiBearerAuth('access-token') 
 @Controller('mis-logros')
 export class UsuarioLogroController {
